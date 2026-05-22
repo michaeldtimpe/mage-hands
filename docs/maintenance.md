@@ -176,6 +176,44 @@ above with `notify_if_error:true`). Because a DOWN run exits non-zero, DSM **ema
 tags. (To recreate elsewhere or via the GUI, tick the task's **Settings** → *"Send run details by
 email"* → *"only when the script terminates abnormally"*.)
 
+## Checking SSD cache health, wear & effectiveness
+
+The obvious tools fail: a Synology SSD cache is remapped to `/dev/nvc1`,`/dev/nvc2`, and on
+boxes that take **M.2 SATA** SSDs (alpha runs 2× Intel D3-S4510 240GB on an M2D17 card) those
+devices present as **SCSI**, so `smartctl -d nvme /dev/nvc1` dies with *"Read NVMe Identify
+Controller failed … Inappropriate ioctl for device"* and there's no `nvme`/`synonvme` CLI on the
+box. **DSM already polled the drives and cached the parsed result** — read that instead of
+re-deriving it:
+
+```sh
+# DSM's verdict per cache device (authoritative): % life left, error state, temp, model
+for d in nvc1 nvc2; do echo "== $d =="; for f in model serial remain_life smart read_only temperature; do
+  echo -n "$f="; cat /run/synostorage/disks/$d/$f; done; done
+# full SMART attribute table DSM parsed (JSON: [id, name, cur, worst, thresh, raw, failed])
+cat /run/synostorage/disks/nvc1/smart_info_list.cache
+```
+
+`remain_life` is the number DSM shows in Storage Manager (100 = unworn; alpha read 100/99 on
+2026-05-22). Cross-check the raw attributes: `Reallocated_Sector_Ct` / `Pending_Sector_Count` /
+`Uncorrectable_Error_Cnt` / `CRC_Error_Count` should all be 0; `Media_Wearout_Indicator`
+(normalized) counts 100→1; `Host_Writes_32MiB` × 32 MiB is lifetime host writes (datacenter SSDs
+are rated for hundreds of TB, so a few TB written = ~1% wear even after years of power-on). Note
+these were **used** drives — the two members' lifetime write counts differ by their pre-service
+history; in-service wear is symmetric.
+
+```sh
+cat /proc/mdstat              # cache array: md4 = raid1 of nvc1p1/nvc2p1 => mirrored => READ-WRITE cache
+dmsetup status               # cachedev_0 'flashcache-syno stats': read/write hit %, dirty %
+```
+
+**Reading effectiveness** (`dmsetup status`, alpha snapshot): `read hit percent(2)` —
+near-useless, because ~96% of reads are sequential and DSM's cache **skips sequential I/O** by
+design (a media/large-file volume gets almost nothing from read caching). `write hit percent(64)`
+(dirty 62%) — the writeback half *is* absorbing random writes (metadata, Docker/DB I/O), which is
+where the value is. A RAID1 mirror of **PLP** datacenter SSDs + the box's UPS is the correct, safe
+setup for a writeback cache (a single-SSD or RAID0 cache can only be read-only). The cache:volume
+ratio is tiny (~223 GiB front of ~37 TiB), fine for this workload.
+
 ## High host CPU? Suspect `tailscaled`, not the relay
 
 The relay is a near-idle uvicorn process and is usually stopped by the watchdog anyway, so high

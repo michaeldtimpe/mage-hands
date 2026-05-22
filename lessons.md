@@ -279,3 +279,21 @@ the management layer*, not a root cause. When it contradicts the persisted confi
 reality, keep descending — service → daemon log → raw driver → `/sys` USB topology — until you hit a
 layer that can't lie. Some "fix it in software" requests bottom out at a cable, and saying so plainly
 (with the evidence) is the fix.
+
+## The generic health tool is the wrong oracle for an appliance's cache
+
+Asked to check alpha's SSD cache wear, the reflex is `smartctl -d nvme /dev/nvc1` — which fails
+with *"Inappropriate ioctl for device,"* and there's no `nvme` or `synonvme` CLI to fall back to.
+The reason is two layers of appliance-specific remapping: DSM renames cache SSDs to `nvc1`/`nvc2`,
+and on the M2D17 card these are **M.2 SATA** drives (Intel D3-S4510) presented as **SCSI**, so the
+NVMe admin path the tool name assumes simply doesn't exist. The actual wear data was sitting
+pre-parsed in `/run/synostorage/disks/nvc{1,2}/` the whole time — `remain_life` (the % Storage
+Manager shows) plus a `smart_info_list.cache` JSON of every SMART attribute. DSM had already polled
+the drives; the job was to *read its answer*, not re-derive one with a tool that guesses the wrong
+transport. (Same shape as the QuickConnect "wrong file" and the `synoservicectl→synosystemctl`
+rename: the device is `nvc*` for "NVMe cache" by naming convention, but it's SATA underneath.)
+
+**Lesson:** on an appliance, prefer the vendor's own cached/parsed state over a generic tool that
+assumes a standard transport — the box has usually already done the read, and the standard tool's
+*name* (`-d nvme`) can be a lie about what's physically there. When a health probe errors, ask
+whether you reached for the wrong oracle before concluding the data is unavailable.

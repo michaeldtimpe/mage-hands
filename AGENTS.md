@@ -106,7 +106,7 @@ script). Use a **separate token per appliance**.
 | Name | Host | Hardware / OS | MCP URL | Notes |
 |------|------|---------------|---------|-------|
 | `kappa` (synology-hands) | `kappa.local` | Synology 718+ (apollolake), DSM 7.2.1 x86_64 | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login; scoped passwordless sudo installed; Mac start/stop via `~/.config/mage-hands/relay.sh kappa up\|down` + approval rules in `~/.claude/settings.json` |
-| `alpha` (synology-hands) | `alpha.local` | Synology 1517+ (avoton), DSM 7.3.1 x86_64 | `https://alpha.<tailnet>.ts.net/mcp` | same setup mirrored from kappa; token at `~/.config/nas-relay/alpha.token`; `mcp__alpha__*` permission rules added; start/stop `~/.config/mage-hands/relay.sh alpha up\|down` |
+| `alpha` (synology-hands) | `alpha.local` | Synology 1517+ (avoton), DSM 7.3.1 x86_64; 5× 10TB → 2× RAID5 → LVM `volume_1` ~37 TiB; **SSD cache** 2× Intel D3-S4510 240GB M.2 SATA (M2D17) in RAID1 read-write/writeback (DSM `nvc1`/`nvc2`) | `https://alpha.<tailnet>.ts.net/mcp` | same setup mirrored from kappa; token at `~/.config/nas-relay/alpha.token`; `mcp__alpha__*` permission rules added; start/stop `~/.config/mage-hands/relay.sh alpha up\|down` |
 | `router1` (router-hands) | runs on `kappa.local` | ASUS Asuswrt-Merlin router, reached over SSH | `https://router1.<tailnet>.ts.net/mcp` | **implemented; deploy per [router-hands/README.md](router-hands/README.md)**. SSHRunner relay container on kappa + Tailscale **sidecar** node; unprivileged; SSH key in `router-hands/secrets/`; `BIND_HOST=127.0.0.1`/`PORT=8788`; `run()` opt-in (`ROUTER_ENABLE_RUN`); lifecycle `mage-hands-router-relay-{up,down}`; `relay.sh router1 up\|down` (SSHes to kappa, not the router) |
 
 **Status (2026-05-22):** both NAS boxes on Tailscale **1.98.2**; per-box DSM Task Scheduler jobs
@@ -129,7 +129,12 @@ dead because its USB interface wasn't enumerating; after a **physical port move*
 DSM auto-loaded `usbhid-ups`. **Approval model:** this operator's `~/.claude/settings.json` now
 **auto-allows** the relay `run` / `restart_*` tools + the `relay.sh` helper (no per-call prompts) —
 the relay's own catastrophic-pattern denylist, two-call `exec_token` gate, identity allowlist, and
-audit log still apply server-side.
+audit log still apply server-side. **SSD cache reviewed 2026-05-22** (alpha): both Intel S4510
+members healthy at ~99–100% remaining life, all error counters 0, PLP self-test passing; it's a
+read-write/writeback RAID1 cache fronting `volume_1` — write-hit ~64% (useful), read-hit ~2%
+(sequential media I/O bypasses by design). How to inspect it: [docs/maintenance.md](docs/maintenance.md)
+*"Checking SSD cache health, wear & effectiveness"* (the wear data is in `/run/synostorage/disks/`,
+**not** `smartctl -d nvme`, which the M.2-SATA cache devices reject).
 `router-hands` (`router1`) is **code-complete and tested but not yet deployed** — its relay runs on
 `kappa` and reaches the ASUS Merlin router over SSH; deploy per
 [router-hands/README.md](router-hands/README.md) (provision the SSH key + `TS_AUTHKEY` on kappa,
