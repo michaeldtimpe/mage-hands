@@ -13,6 +13,7 @@ User = `root`.
 |------|----------|-------------|
 | Idle relay auto-stop | every 5 min | `/volume1/docker/mage-hands/synology-hands/scripts/idle-watchdog.sh` |
 | Tailscale auto-update | weekly | `/volume1/docker/mage-hands/synology-hands/scripts/tailscale-update.sh` |
+| Plex auto-update (alpha only — where Plex runs) | weekly | `/volume1/docker/mage-hands/synology-hands/scripts/plex-update.sh` |
 
 ## Updating Tailscale (Package Center lags — don't rely on it)
 
@@ -50,10 +51,30 @@ Package Center silently lags upstream for some packages (it left Tailscale ~2 ye
   is **7.2.1** vs alpha **7.3.1** — a major upgrade is outstanding on kappa.)
 - **Package Center** — `synopkg checkupdateall` (`[]` = nothing pending) + the installed list.
 - **Vendor-managed** — Tailscale via `tailscale version` + `tailscale update --dry-run` (update with
-  `tailscale update --yes`, **not** Package Center).
+  `tailscale update --yes`, **not** Package Center). **Plex** (a *package*, also lags Package Center)
+  has its own updater — see "Updating Plex" below.
 - **Container images** — compare with `list_containers` + `docker images`.
 
 Ask Claude: *"Run `pending_updates` on kappa and tell me what I can update."*
+
+## Updating Plex Media Server (Package Center lags — auto-update script)
+
+Plex's package on Synology trails Plex's own releases (same problem as Tailscale), so
+`scripts/plex-update.sh` updates it straight from Plex's download catalog. It reads
+`https://plex.tv/api/downloads/5.json`, picks the build matching this box's **DSM major** (Plex
+splits `Synology (DSM 7)` vs `Synology (DSM 7.2.2+)` — alpha on 7.3.1 uses the latter) and **CPU
+arch**, compares to the installed version, then downloads + **sha1-verifies** + `synopkg install`s
+the `.spk` and restarts Plex. It's a safe no-op on boxes without Plex and won't downgrade.
+
+```sh
+sudo /volume1/docker/mage-hands/synology-hands/scripts/plex-update.sh --check   # report only (exit 10 = update available)
+sudo /volume1/docker/mage-hands/synology-hands/scripts/plex-update.sh           # update if newer
+```
+
+- **Channel:** stable/public by default. For the Plex Pass channel, set `PLEX_TOKEN=<your token>`.
+- **Schedule** weekly via DSM Task Scheduler (root), same as Tailscale (don't hand-edit
+  `/etc/crontab`). Driving it through the relay: `mcp__alpha__run` the script path (dry-run, then
+  replay the token); the `--check` form is handy for "is Plex behind?" without changing anything.
 
 ## Checking external access / internet exposure
 
