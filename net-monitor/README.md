@@ -31,6 +31,18 @@ sudo docker exec net-monitor sh /app/summary.sh                                 
 sudo docker logs --tail 5 net-monitor                                                    # container health
 ```
 
+## Storage & retention
+The logs **persist on kappa** — they are not ephemeral. The container bind-mounts `./data` to the
+host, so every sample lands in a real file on the NAS pool at
+`/volume1/docker/mage-hands/net-monitor/data/connectivity-<UTC-date>.jsonl`, surviving container
+restart / recreate / rebuild **and** a kappa reboot (`restart: unless-stopped`). One file per UTC
+day; files older than `RETAIN_DAYS` (365) are pruned at the daily rollover — so it keeps a **rolling
+one-year history** (~0.9 GB steady state). Raise `RETAIN_DAYS` to keep longer.
+
+Note: `data/` is **gitignored** — that keeps runtime logs out of the *git repo*, and has nothing to
+do with on-disk retention on kappa (the logs are retained there regardless). To archive beyond the
+retention window, copy the per-day files off kappa.
+
 ## Alerting
 Edge-triggered (fires once on DOWN and once on RECOVERED, not every sample). Disabled until you set
 a destination in `compose.yaml`, then `up -d --build`:
