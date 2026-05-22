@@ -241,3 +241,20 @@ with the same 127 for a *different* reason — two faults masking each other.
 **Lesson:** when you fix the reason a class of commands silently fails, re-test everything that
 depended on them — a PATH fix can unmask a stale binary name. Appliance OSes rename their own
 tooling across majors; pin the verb to the OS version, not to muscle memory.
+
+## Hardening a shared service can cascade — whitelist before you demand a password
+
+alpha's Transmission RPC was wide open (`rpc-authentication-required: false`, bound `0.0.0.0:9091`).
+The reflexive fix — turn on RPC auth with a username/password — would have **silently broken the
+download pipeline**: Sonarr/Radarr/etc. are *clients* of that same RPC, so every `*arr` would have
+lost its download client until each was re-configured with the new credentials (and a password the
+operator never chose). Once QuickConnect was off the service was already LAN-only, so the
+proportionate move was an **IP whitelist** (`127.0.0.1,192.168.1.*`) — closes the same door for the
+threat that remains (a rogue LAN host is still possible, but not an internet one) without touching a
+single integration. Auth stays available as a deliberate, later opt-in *with* the client-update plan.
+(Also: Transmission rewrites `settings.json` on shutdown, so edit it **stopped**, not running.)
+
+**Lesson:** before hardening a service, ask *who else authenticates to it.* A shared back-end's
+"add auth" is a fan-out change, not a local one. Match the control to the exposure that actually
+remains after the upstream fix, and reach for a whitelist (no shared secret, no cascade) before a
+credential that every client must now learn.

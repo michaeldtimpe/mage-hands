@@ -114,10 +114,12 @@ active — idle-watchdog (every 5 min) and tailscale-update (weekly); relays **o
 Three read-only Tier-A tools added — `internet_exposure`, `performance`, `pending_updates` (and the
 `run()`/Tier-A output cap is now env-tunable via `OUTPUT_CAP`). **Security remediation:**
 QuickConnect was found **enabled on both boxes** (relaying DSM/SSH; the 2026-05 audit missed it —
-see [docs/audit-2026-05.md](docs/audit-2026-05.md)). On **kappa** it has been **disabled** and SSH
-**password auth turned off** (key-only); auto-block confirmed on. **alpha still has QuickConnect on
-+ SSH password auth on — pending the same remediation.** (Reminder: DSM 7 uses `synosystemctl`, not
-`synoservicectl`.)
+see [docs/audit-2026-05.md](docs/audit-2026-05.md)). **Both boxes remediated 2026-05-22:**
+QuickConnect **disabled** and SSH **password auth turned off** (key-only; verified) on kappa **and**
+alpha; auto-block confirmed on. On **alpha** additionally: app containers (jackett/radarr/sabnzbd-1/
+sonarr-1/transmission) set to `restart=unless-stopped`, the `watchtower` container (docker.sock:rw +
+net=host) **removed**, and Transmission RPC **whitelisted** to localhost+LAN. (Reminder: DSM 7 uses
+`synosystemctl`, not `synoservicectl`; QuickConnect lives in `/usr/syno/etc/synorelayd/`.)
 `router-hands` (`router1`) is **code-complete and tested but not yet deployed** — its relay runs on
 `kappa` and reaches the ASUS Merlin router over SSH; deploy per
 [router-hands/README.md](router-hands/README.md) (provision the SSH key + `TS_AUTHKEY` on kappa,
