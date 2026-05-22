@@ -258,3 +258,24 @@ single integration. Auth stays available as a deliberate, later opt-in *with* th
 "add auth" is a fan-out change, not a local one. Match the control to the exposure that actually
 remains after the upstream fix, and reach for a whitelist (no shared secret, no cascade) before a
 credential that every client must now learn.
+
+## A management-API "disabled" can be a hardware fault three layers down
+
+"Alpha's UPS health is broken." DSM's UPS webapi said `enable:false, status:usb_ups_status_unknown`
+— which *reads* like "someone turned UPS off." But the persisted config (`synoups.conf`,
+`ups_enabled="yes"`) disagreed, and a CyberPower UPS was physically cabled. Drilling down through the
+layers: DSM (`ups-usb.sh`) auto-probes drivers and writes `tripplite_usb` only as the *give-up*
+fallback after every driver returns an empty product → the log loop `This UPS is not supported.
+product=[]` → `Stop UPS Daemon`. Running `usbhid-ups -DD` directly (the right driver for CyberPower)
+got further — it *saw* `0764:0501` — but died on `could not claim interface 0: No such file or
+directory`. The bottom of the stack: `/sys/.../2-3` showed the device enumerated with **zero
+interfaces** (`0IFs`), and a software USB reset (unbind/rebind) didn't bring the interface back. So
+the real fault is **physical** — a flaky USB cable/port (or a failing UPS USB controller) that lets
+the device enumerate but never expose its HID interface. No driver, DSM's or NUT's, can claim an
+interface that isn't there; the fix is a re-seat / cable swap / different port / power-cycle.
+
+**Lesson:** a control-plane status (`enabled:false`, `unknown`, "not supported") is an *assertion by
+the management layer*, not a root cause. When it contradicts the persisted config or the physical
+reality, keep descending — service → daemon log → raw driver → `/sys` USB topology — until you hit a
+layer that can't lie. Some "fix it in software" requests bottom out at a cable, and saying so plainly
+(with the evidence) is the fix.

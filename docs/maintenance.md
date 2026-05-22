@@ -80,6 +80,29 @@ returns nothing means "off" **or** "wrong oracle". DSM 7 uses **`synosystemctl`*
 `synoservicectl`) and keeps `syno*` tools in `/usr/syno/{bin,sbin}` — the relay's `NsenterRunner`
 now puts those on `PATH` automatically.
 
+## UPS shows "unknown" / "not supported" / health broken
+
+Don't trust the control-plane verdict — descend the layers (alpha 2026-05 case: a CyberPower whose
+USB interface never enumerated). Diagnostic ladder:
+
+```sh
+synowebapi --exec api=SYNO.Core.ExternalDevice.UPS method=get     # DSM view: enable/mode/status/usb_ups_connect
+cat /usr/syno/etc/ups/synoups.conf                                # persisted intent (ups_enabled/ups_mode/ups_acl)
+for u in ups-usb upsd upsmon; do synosystemctl get-active-status $u; done   # daemons up?
+grep -iE "ups|usbhid|not support" /var/log/messages | tail       # "This UPS is not supported. product=[]" = driver couldn't read it
+grep -A2 '\[ups\]' /etc/ups/ups.conf                             # which NUT driver DSM chose (CyberPower wants usbhid-ups, not tripplite_usb)
+timeout 12 /usr/bin/usbhid-ups -DD -a ups                         # raw driver debug (after temporarily setting driver=usbhid-ups)
+cat /sys/bus/usb/devices/<b-p>/bNumInterfaces; ls -d /sys/bus/usb/devices/<b-p>:*   # ZERO interfaces => USB-link fault
+```
+
+`ups-usb.sh` auto-probes `usbhid-ups blazer_usb bcmxcp_usb richcomm_usb tripplite_usb` and writes the
+first that returns a product; it writes `tripplite_usb` as a *give-up fallback*. If the raw driver
+sees the VID:PID but fails `could not claim interface 0: No such file or directory`, and `/sys` shows
+**0 interfaces**, the device enumerated but never exposed its HID interface — a **physical** problem
+(re-seat/replace the USB cable, try another port, power-cycle the UPS). A software USB reset
+(`echo -n <b-p> > /sys/bus/usb/drivers/usb/{unbind,bind}`) will *not* fix a non-enumerating
+interface. Once the cable/port is fixed, DSM's auto-probe picks `usbhid-ups` itself.
+
 ## High host CPU? Suspect `tailscaled`, not the relay
 
 The relay is a near-idle uvicorn process and is usually stopped by the watchdog anyway, so high
