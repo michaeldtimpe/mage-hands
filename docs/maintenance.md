@@ -14,6 +14,7 @@ User = `root`.
 | Idle relay auto-stop | every 5 min | `/volume1/docker/mage-hands/synology-hands/scripts/idle-watchdog.sh` |
 | Tailscale auto-update | weekly | `/volume1/docker/mage-hands/synology-hands/scripts/tailscale-update.sh` |
 | Plex auto-update (alpha only — where Plex runs) | weekly | `/volume1/docker/mage-hands/synology-hands/scripts/plex-update.sh` |
+| UPS health check (alpha — where the UPS is) | daily | `/volume1/docker/mage-hands/synology-hands/scripts/ups-healthcheck.sh` |
 
 ## Updating Tailscale (Package Center lags — don't rely on it)
 
@@ -123,6 +124,33 @@ sees the VID:PID but fails `could not claim interface 0: No such file or directo
 (re-seat/replace the USB cable, try another port, power-cycle the UPS). A software USB reset
 (`echo -n <b-p> > /sys/bus/usb/drivers/usb/{unbind,bind}`) will *not* fix a non-enumerating
 interface. Once the cable/port is fixed, DSM's auto-probe picks `usbhid-ups` itself.
+
+## UPS health logging & daily down-alert
+
+**What DSM logs already:** UPS *events* (`upsd`/`upsmon` start, `connected`, on-battery/low-battery/
+lost-comms) go to `/var/log/messages` + **Log Center**, and `upsmon` is wired (`NOTIFYCMD upssched`,
+`NOTIFYFLAG ONBATT/LOWBATT/NOCOMM EXEC`) to fire DSM notifications **on those events** — but **only
+while upsmon is running.** Nothing flags the monitoring being *down* (daemon stopped / USB not
+enumerating), which is the failure that hid the dead UPS in the 2026-05 audit.
+
+**`scripts/ups-healthcheck.sh`** closes that gap. Read-only; run as root. It treats a UPS as
+expected only where `synoups.conf ups_enabled=yes` (safe no-op elsewhere), then asks `upsc` whether
+`upsd` is answering and reporting a status. Output, every run, lands in **`/var/log/mage-ups-health.log`**
+(`$UPS_HEALTH_LOG` to override). On **DOWN** it raises visibility three ways: a `daemon.err` syslog
+line (→ `/var/log/messages` + Log Center — note DSM's syslog keeps `err`/`warning` but drops
+`notice`/`info`), a DSM **desktop notification** (`synodsmnotify`), and a **non-zero exit**.
+
+```sh
+sudo /volume1/docker/mage-hands/synology-hands/scripts/ups-healthcheck.sh          # OK -> exit 0, DOWN -> exit 1
+sudo /volume1/docker/mage-hands/synology-hands/scripts/ups-healthcheck.sh --quiet  # speak up only when DOWN
+tail /var/log/mage-ups-health.log                                                   # the health log
+```
+
+**Schedule it DAILY** via DSM Task Scheduler (root) — and on the task's **Settings** tab tick
+*"Send run details by email"* with *"only when the script terminates abnormally"*. Because a DOWN run
+exits non-zero, DSM then **emails you once a day while the UPS is down** (email is already configured:
+`smtp_mail_enabled=yes`). That's the "once-a-day if it's down" alert, riding DSM's own mail rather
+than fragile `synonotify` event tags.
 
 ## High host CPU? Suspect `tailscaled`, not the relay
 
