@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Secrets & runtime state — never commit
+.env
+*.token
+**/logs/

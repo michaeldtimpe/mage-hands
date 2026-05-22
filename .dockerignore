@@ -1,0 +1,12 @@
+# Build context is the repo root; keep secrets and cruft out of the image.
+.git
+.gitignore
+**/.env
+**/*.token
+**/logs/
+**/__pycache__/
+**/*.pyc
+.venv
+**/*.egg-info
+**/README.md
+docs/

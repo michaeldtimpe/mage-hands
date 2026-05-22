@@ -1,0 +1,29 @@
+# Deploy on the NAS via SSH — Container Manager's GUI cannot set `privileged`:
+#   sudo docker compose -f <deploy>/synology-hands/compose.yaml up -d --build
+#
+# This container is intentionally all-powerful (privileged + pid:host + host-root mount):
+# once up it is effectively root on the NAS. Safety comes from Tailscale isolation, the
+# bearer token, ephemerality (it's normally OFF), and the audit log — not from sandboxing.
+services:
+  relay:
+    build:
+      context: ..                       # repo root, so the image can include ../common
+      dockerfile: synology-hands/Dockerfile
+    container_name: synology-hands
+    privileged: true                    # full host administration (by design)
+    pid: host                           # nsenter -t 1 reaches host namespaces
+    restart: "no"                       # ephemeral: never auto-restarts; you bring it up
+    stop_grace_period: 35s              # >= core graceful_timeout (30s) for clean shutdown
+    env_file: .env
+    ports:
+      - "127.0.0.1:8787:8787"           # loopback ONLY; Tailscale Serve fronts it
+    volumes:
+      - /:/host                         # host filesystem (read/write, by design)
+      - ./logs:/var/log/mcp             # persistent audit log + last_activity
+    healthcheck:
+      # TCP listen check (a /mcp GET would 401 once auth is on, which isn't "unhealthy").
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8787), 3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

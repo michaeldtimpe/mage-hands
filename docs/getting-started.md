@@ -1,0 +1,119 @@
+# Getting started — using a deployed relay
+
+This is the everyday path: a relay is already deployed and you want Claude to use it from a
+**fresh session**. (To deploy a new appliance, see [deploy.md](deploy.md).)
+
+The relay is **off by default**, so there are two steps: bring it up, then start a new Claude
+session so the tools load.
+
+## TL;DR
+
+```sh
+# 1. Bring the relay up on the appliance (over SSH)
+ssh magehands@kappa.local
+sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-up.sh
+exit
+
+# 2. Start a NEW Claude Code session on your Mac.
+#    The relay's tools auto-load as  mcp__kappa__*  — just ask Claude to use them.
+
+# 3. When done (or let the idle watchdog do it after 30 min):
+ssh magehands@kappa.local 'sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-down.sh'
+```
+
+## 1. Bring the relay up
+
+Remote MCP servers have zero attack surface when not running, so you start it for the session:
+
+```sh
+ssh magehands@kappa.local
+sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-up.sh
+```
+
+`relay-up.sh` builds (cached after the first time), waits for the container to report healthy,
+then exposes it via Tailscale Serve. It's done when you see `synology-hands is up and served
+over Tailscale.`
+
+## 2. Start a fresh Claude session
+
+Remote MCP servers are loaded **at session start**, so the relay's tools won't appear in a
+session that was already open when you brought it up. Open a new Claude Code session and verify:
+
+```sh
+claude mcp list      # kappa: https://kappa.<tailnet>.ts.net/mcp (HTTP) - ✓ Connected
+```
+
+Inside the session, `/mcp` shows the server and its tools as `mcp__kappa__*`. If it shows
+**disconnected**, the relay is down — go back to step 1.
+
+> **First time on this Mac only:** if `kappa` isn't listed at all, register it once:
+> ```sh
+> claude mcp add --transport http --scope user kappa \
+>   https://kappa.<tailnet>.ts.net/mcp \
+>   --header "Authorization: Bearer $(cat ~/.config/nas-relay/kappa.token)"
+> ```
+
+## 3. What you can ask for
+
+Just talk to Claude normally — it has these tools (all calls run on the NAS host and are
+audited):
+
+| Ask Claude to… | Tool | Tier |
+|----------------|------|------|
+| check kernel/DSM version | `system_info` | A (read) |
+| show disk usage | `disk_usage` | A |
+| check SMART health of every disk | `storage_health` | A |
+| list containers / tail a container's logs | `list_containers`, `container_logs` | A |
+| check a DSM service's status | `service_status` | A |
+| read a config/log file (allowlisted paths) | `read_file` | A |
+| restart a container or DSM service | `restart_container`, `restart_service` | B (mutation) |
+| run an arbitrary root command | `run` | C (gated) |
+
+Example prompts:
+- *"Check the NAS disk usage and SMART health, and flag anything degraded."*
+- *"Tail the last 100 lines of the `plex` container logs."*
+- *"Restart the `radar-image-processor` container."*
+
+## The `run()` tool (arbitrary root commands)
+
+`run()` is the escape hatch for anything without a dedicated tool. It's a **two-step** flow so a
+single call can't accidentally mutate the box:
+
+1. Claude calls `run("…")` with no token → gets a **dry-run preview** plus a one-time
+   `exec_token` (valid 5 minutes, bound to that exact command).
+2. After you've seen the intended command, Claude calls `run("…", exec_token="…")` to execute.
+
+Catastrophic commands (`rm -rf /`, `mkfs`, partition tools, wiping a volume, …) are **refused
+outright**, before any token is issued. Targeted operations under a volume are allowed.
+
+Good habit: ask Claude to **dry-run and show you the command first**, then confirm.
+
+## 4. Bring it down
+
+```sh
+ssh magehands@kappa.local 'sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-down.sh'
+```
+
+This turns off Tailscale Serve and stops the container. The `kappa` MCP server will then show
+disconnected in `/mcp` — expected. If you forget, the **idle watchdog** stops it automatically
+after 30 minutes of no tool calls (once scheduled — see [deploy.md](deploy.md)).
+
+## Audit trail
+
+Every tool call is logged on the NAS at
+`/volume1/docker/mage-hands/synology-hands/logs/audit.jsonl` (root-readable only), one JSON line
+per call with the caller identity, tool, args, status, and timing:
+
+```sh
+ssh magehands@kappa.local 'sudo tail -5 /volume1/docker/mage-hands/synology-hands/logs/audit.jsonl'
+```
+
+## Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---------|--------------------|
+| `kappa` shows disconnected in `/mcp` | Relay is down — run `relay-up.sh`. |
+| Tools don't appear though `claude mcp list` says connected | Session started before the relay came up — start a new session. |
+| `401` / "needs authentication" | Token mismatch — the Mac token (`~/.config/nas-relay/kappa.token`) must equal `RELAY_TOKEN` in the NAS `.env`. |
+| Every tool call is rejected for identity | `ALLOWED_USERS` doesn't include your Tailscale login (`tailscale status`). |
+| `relay-up.sh` hangs on Serve / asks for consent | Tailscale Serve/HTTPS not enabled on the tailnet — enable HTTPS in the admin console. |
