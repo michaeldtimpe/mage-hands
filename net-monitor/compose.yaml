@@ -1,0 +1,28 @@
+# Always-on internet connectivity health logger on kappa.
+# Stock alpine + a bind-mounted busybox script — nothing to build. Goes out the normal route
+# (docker bridge -> kappa -> router -> WAN), so it measures the same internet path the LAN uses.
+#
+# Deploy on kappa:  sudo docker compose -f /volume1/docker/mage-hands/net-monitor/compose.yaml up -d
+# Read the log:     tail -f /volume1/docker/mage-hands/net-monitor/data/connectivity.jsonl
+# Quick summary:    sudo docker exec net-monitor sh /app/summary.sh
+services:
+  net-monitor:
+    image: alpine:3.20
+    container_name: net-monitor
+    restart: unless-stopped                 # always-on (unlike the ephemeral mage-hands relays); survives reboot
+    cap_add:
+      - NET_RAW                             # busybox ping needs raw sockets
+    command: ["/bin/sh", "/app/monitor.sh"]
+    environment:
+      - INTERVAL=60
+      - GATEWAY=192.168.1.1
+      - TARGETS=1.1.1.1 8.8.8.8
+      - DNS_NAME=google.com
+    volumes:
+      - ./monitor.sh:/app/monitor.sh:ro
+      - ./summary.sh:/app/summary.sh:ro
+      - ./data:/data                        # connectivity.jsonl lands here (host-readable)
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "3"

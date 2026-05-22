@@ -88,6 +88,9 @@ mage-hands/
 │   ├── Dockerfile  compose.yaml  serve.json  .env.example
 │   ├── scripts/                  # relay-up/down · idle-watchdog · install-sudo · smoke-test.py
 │   └── README.md
+├── net-monitor/                  # standalone (NOT an MCP relay): always-on internet connectivity logger on kappa
+│   ├── compose.yaml  monitor.sh  summary.sh
+│   └── README.md
 ├── docs/
 │   ├── getting-started.md        # use a deployed relay from a fresh Claude session
 │   ├── deploy.md                 # deploy/operate a new appliance
