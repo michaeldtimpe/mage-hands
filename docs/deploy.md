@@ -296,7 +296,9 @@ The runbook above assumes the relay runs *on* the target. For a target that can'
   because `8788` lives on the sidecar's netns loopback, not kappa's host loopback.
 - **Bring-up verifies SSH egress.** `relay-up.sh` prints `SSH egress to router: PASS/FAIL`; if it
   FAILs, the userspace-netns LAN-egress fallback (kernel-TUN) is in router-hands/README.md.
-- **`run()` is opt-in** (`ROUTER_ENABLE_RUN=true`); leave it off for inspection-only use.
+- **`run()` is ON by default** (parity with synology-hands; `ROUTER_ENABLE_RUN=false` for
+  inspection-only). The router denylist also closes indirect Merlin reboot paths so the gated
+  `reboot_router` stays the only intended reboot route.
 - **Scoped sudo uses distinct names** (`mage-hands-router-relay-{up,down}` + `/etc/sudoers.d/mage-hands-router`)
   so it coexists with synology-hands on the same box; the Mac `relay.sh router1` case SSHes to
   **kappa** (the container host), not the router.

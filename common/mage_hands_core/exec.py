@@ -94,6 +94,15 @@ class NsenterRunner:
 # unless we set PATH ourselves. /jffs/{sbin,bin} carry Entware/addon tools when present.
 _MERLIN_PATH = "PATH=/usr/sbin:/usr/bin:/sbin:/bin:/jffs/sbin:/jffs/bin"
 
+# The shell we invoke for `sh -c ...` payloads (run() + the Tier-A helpers that need a pipe/loop/
+# command-substitution). It MUST be an absolute path: Broadcom-based ASUS firmware ships a
+# memory-diagnostic multicall binary whose applet is literally named `sh` (the "store-halfword"
+# command — its usage banner lists dw/dh/db, sw/sh/sb, fw/fh/fb) in an sbin dir that precedes /bin
+# on _MERLIN_PATH. So a BARE `sh -c` resolves to that tool, which rejects -c ("sh: invalid option
+# -- 'c'") and silently breaks every shell payload (run(), internet_exposure, pending_updates,
+# performance). /bin/sh is busybox ash on Merlin. Override per-box via ROUTER_REMOTE_SHELL.
+_DEFAULT_REMOTE_SHELL = "/bin/sh"
+
 
 class SSHRunner:
     """Run commands on a remote host over SSH (key auth, BatchMode) — the "relay runs elsewhere"
@@ -124,6 +133,7 @@ class SSHRunner:
         strict_host_key_checking: str = "yes",   # "yes" = pinned; "accept-new" = first-deploy only
         known_hosts: str | None = "/secrets/known_hosts",
         control_persist: int = 60,               # 0 disables ControlMaster multiplexing
+        remote_shell: str = _DEFAULT_REMOTE_SHELL,  # absolute shell for `sh -c` payloads (see above)
         cap: int = DEFAULT_OUTPUT_CAP,
     ):
         self.host = host
@@ -134,6 +144,7 @@ class SSHRunner:
         self.strict_host_key_checking = strict_host_key_checking
         self.known_hosts = known_hosts or None
         self.control_persist = control_persist
+        self.remote_shell = remote_shell
         self.cap = cap
 
     def _ssh_argv(self, remote_cmd: str) -> list[str]:
@@ -161,6 +172,10 @@ class SSHRunner:
         return argv + [f"{self.user}@{self.host}", "--", f"{_MERLIN_PATH} {remote_cmd}"]
 
     def run(self, argv: list[str], timeout: int = 60, cap: int | None = None) -> dict:
+        # Rewrite a leading bare `sh` to the absolute remote shell so `sh -c ...` payloads don't
+        # resolve to Broadcom's `sh` memory-tool applet on _MERLIN_PATH (see _DEFAULT_REMOTE_SHELL).
+        if argv and argv[0] == "sh":
+            argv = [self.remote_shell, *argv[1:]]
         res = _exec(self._ssh_argv(shlex.join(argv)), timeout, self.cap if cap is None else cap)
         # ssh exit 255 == TRANSPORT failure (auth/route/disconnect), distinct from the remote
         # command's own rc. Disruptive ops (reboot, restart_wan/wireless/firewall) can drop the
@@ -201,6 +216,7 @@ class SSHRunner:
             strict_host_key_checking=strict,
             known_hosts=known_hosts,
             control_persist=int(os.environ.get("ROUTER_CONTROL_PERSIST", "60")),
+            remote_shell=os.environ.get("ROUTER_REMOTE_SHELL", _DEFAULT_REMOTE_SHELL),
             cap=cap,
         )
 

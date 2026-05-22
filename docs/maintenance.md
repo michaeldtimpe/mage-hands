@@ -294,6 +294,16 @@ sudo tail -5 /volume1/docker/mage-hands/router-hands/logs/audit.jsonl     # who 
 sudo docker exec router-hands sh -c 'ssh -o BatchMode=yes -i /secrets/router_key -p "${ROUTER_PORT:-22}" "${ROUTER_USER:-admin}@${ROUTER_HOST}" true' && echo egress-OK
 ```
 
+**Symptom: `run()` / `internet_exposure` / `pending_updates` / `performance` return `sh: invalid
+option -- 'c'` + a memory-tool banner (`dw/dh/db … sw/sh/sb … fw/fh/fb`), or `internet_exposure`
+shows every channel as `unknown`/`null` while the direct-argv tools (`system_info`, `wan_status`,
+`firewall_show`) look fine.** Cause: on Broadcom ASUS firmware a memory-diagnostic applet literally
+named `sh` ("store-halfword") sits in an sbin dir that precedes `/bin` on the relay's `PATH`, so a
+**bare** `sh -c …` resolves to it instead of busybox — silently breaking every shell payload (and a
+*security* tool that returns blanks reads as "nothing to see"). Fixed in core: `SSHRunner` invokes
+the shell by **absolute path** (`/bin/sh`). If a given box keeps its shell elsewhere, set
+`ROUTER_REMOTE_SHELL=/path/to/sh` in `.env` and `compose up -d --force-recreate`. See lessons.md.
+
 **Updating the sidecar Tailscale** — it's a pinned image (`tailscale/tailscale:v1.98.3` in
 `compose.yaml`), not Package Center, so just bump the tag and recreate:
 

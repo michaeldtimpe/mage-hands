@@ -190,7 +190,10 @@ over SSH; ingress is a **Tailscale sidecar** giving it its own node `router1`.
   SSH private key is bind-mounted read-only (`./secrets/…:/secrets/router_key`), never baked in;
   the router host key is pinned (`known_hosts`).
 - **Execution:** `SSHRunner` renders each tool's argv with `shlex.join` into one remote command,
-  prefixed with an explicit `PATH` (dropbear strips the environment). `read_file` uses
+  prefixed with an explicit `PATH` (dropbear strips the environment). Shell payloads (`sh -c …`)
+  invoke an **absolute** shell (`/bin/sh`, override `ROUTER_REMOTE_SHELL`) because Broadcom firmware
+  squats the name `sh` with a memory-diagnostic applet on `PATH` — a bare `sh -c` would hit *it*,
+  not busybox (see lessons.md). `read_file` uses
   `runner_reader` (read over SSH); `run()` is **on by default** (`ROUTER_ENABLE_RUN=false` to
   disable) with a router-tuned denylist on top of `DEFAULT_DENY` — the router extras also close the
   indirect Merlin reboot paths (`service reboot`/`init 6`/…) so the gated `reboot_router` tool stays

@@ -53,12 +53,30 @@ def test_run_quotes_argv_and_threads_cap_timeout(monkeypatch):
 
     monkeypatch.setattr(ex, "_exec", fake)
     SSHRunner(host="r.lan", cap=123).run(["sh", "-c", "iptables -L"], timeout=42)
-    assert captured["argv"][-1].endswith("sh -c 'iptables -L'")
+    assert captured["argv"][-1].endswith("/bin/sh -c 'iptables -L'")  # leading `sh` → absolute shell
     assert captured["timeout"] == 42
     assert captured["cap"] == 123                      # runner's own cap when none passed
     SSHRunner(host="r.lan", cap=123).run(["cat", "/a b"], cap=7)
     assert captured["argv"][-1].endswith("cat '/a b'")  # path with space round-trips
     assert captured["cap"] == 7                         # per-call cap override
+
+
+def test_run_rewrites_bare_sh_to_absolute_shell(monkeypatch):
+    """A leading bare `sh` must become the absolute remote shell — on Broadcom ASUS firmware a
+    rogue `sh` memory-tool applet shadows the shell on PATH and rejects -c. argv[0] that merely
+    CONTAINS 'sh' (e.g. `ssh`, or a path arg) must be left untouched."""
+    captured = {}
+    monkeypatch.setattr(ex, "_exec",
+                        lambda argv, t, c: captured.update(argv=argv) or {"rc": 0, "stdout": "", "stderr": ""})
+
+    SSHRunner(host="x").run(["sh", "-c", "echo hi"])
+    assert captured["argv"][-1].endswith("/bin/sh -c 'echo hi'")
+
+    SSHRunner(host="x", remote_shell="/jffs/bin/bash").run(["sh", "-c", "echo hi"])
+    assert captured["argv"][-1].endswith("/jffs/bin/bash -c 'echo hi'")  # honors override
+
+    SSHRunner(host="x").run(["cat", "/etc/sh.conf"])  # 'sh' only in an arg, not argv[0]
+    assert captured["argv"][-1].endswith("cat /etc/sh.conf")
 
 
 def test_run_flags_transport_error_on_255(monkeypatch):
@@ -81,7 +99,8 @@ def test_from_env_requires_host(monkeypatch):
 def test_from_env_defaults(monkeypatch):
     monkeypatch.setenv("ROUTER_HOST", "r.lan")
     for k in ("ROUTER_USER", "ROUTER_PORT", "ROUTER_SSH_KEY", "ROUTER_KNOWN_HOSTS",
-              "ROUTER_STRICT_HOST_KEY", "ROUTER_CONNECT_TIMEOUT", "ROUTER_CONTROL_PERSIST"):
+              "ROUTER_STRICT_HOST_KEY", "ROUTER_CONNECT_TIMEOUT", "ROUTER_CONTROL_PERSIST",
+              "ROUTER_REMOTE_SHELL"):
         monkeypatch.delenv(k, raising=False)
     r = SSHRunner.from_env(cap=99)
     assert (r.host, r.user, r.port) == ("r.lan", "admin", 22)
@@ -89,6 +108,7 @@ def test_from_env_defaults(monkeypatch):
     assert r.known_hosts == "/secrets/known_hosts"
     assert r.strict_host_key_checking == "yes"
     assert r.control_persist == 60
+    assert r.remote_shell == "/bin/sh"
     assert r.cap == 99
 
 

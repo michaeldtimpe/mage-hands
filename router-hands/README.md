@@ -151,6 +151,16 @@ same LAN). `relay-up.sh` prints `SSH egress to router: PASS/FAIL`. If it ever FA
 sidecar to kernel-TUN mode: set `TS_USERSPACE=false` and add to the `tailscale` service
 `devices: ["/dev/net/tun"]` + `cap_add: [NET_ADMIN, NET_RAW]`.
 
+## Shell note (Broadcom firmware squats `sh`)
+
+On Broadcom-based ASUS routers a memory-diagnostic applet named `sh` ("store-halfword") sits early
+on `PATH`, so a **bare** `sh -c …` resolves to it, not busybox — which would silently break every
+tool that runs a shell payload (`run()`, `internet_exposure`, `pending_updates`, `performance`). The
+`SSHRunner` therefore invokes the shell by **absolute path** (`/bin/sh`); override with
+`ROUTER_REMOTE_SHELL` if a box keeps its shell elsewhere. Symptom if this regresses: tools return
+`sh: invalid option -- 'c'` + a `dw/dh/db … sw/sh/sb` banner, or `internet_exposure` reads as
+all-`unknown`. See [lessons.md](../lessons.md) and [docs/maintenance.md](../docs/maintenance.md).
+
 ## Teardown
 
 ```sh

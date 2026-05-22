@@ -380,3 +380,24 @@ like `service <verb>` or an alternate runlevel like `init 6` defeats a command-p
 keep the prose honest: "the only directly-intended path," not "the only possible path." Also: a tool
 that severs its own transport (`reboot` over SSH) must treat `transport_error`/rc 255 — and the
 uncaught `subprocess.TimeoutExpired` from the executor — as *expected success*, not failure.
+
+## A bare `sh -c` over SSH hits Broadcom's `sh` memory-tool, not the shell
+
+Verified live on an RT-AX88U Pro (Merlin 3.0.0.6_102.7): every tool that goes through a `sh -c`
+payload — `run()`, `internet_exposure`/`pending_updates` (via `_nvram_many`), and `performance`'s
+`iowait`/`top_processes`/cpu fallback — returned `stderr: "sh: invalid option -- 'c'"` plus a
+memory-tool usage banner (`dw/dh/db`, `sw/sh/sb`, `fw/fh/fb` = display/store/fill word/halfword/
+byte). Cause: `SSHRunner` prepends `_MERLIN_PATH=/usr/sbin:/usr/bin:/sbin:/bin:...` and then
+invokes a **bare** `sh -c`; Broadcom firmware ships a memory-diagnostic multicall binary whose
+applet is literally named `sh` ("store halfword") in an sbin dir that precedes `/bin`, so `sh`
+resolves to *it*, not busybox. Direct-argv tools (`system_info`, `wan_status`, `firewall_show`,
+`clients`) were unaffected — they never invoke `sh` — which is exactly why the relay *looked*
+healthy while `internet_exposure` silently reported every WAN channel as `unknown`/`null`.
+
+**Lesson:** on Broadcom/ASUS targets, always invoke the shell by **absolute path** (`/bin/sh`),
+never a bare `sh` resolved through a PATH you control — a vendor can squat the name. Fixed in
+`SSHRunner.run` by rewriting a leading `sh` argv[0] to `self.remote_shell` (default `/bin/sh`,
+override `ROUTER_REMOTE_SHELL`). General rule for this relay family: a tool that "succeeds" (rc 0)
+with wrong-shaped output is worse than one that errors — a security tool returning blanks reads as
+"nothing to see." When a whole *class* of tools (everything routed through one helper) goes quiet,
+suspect the shared path, not each tool.
