@@ -1,27 +1,40 @@
 # Always-on internet connectivity health logger on kappa.
-# Stock alpine + a bind-mounted busybox script — nothing to build. Goes out the normal route
-# (docker bridge -> kappa -> router -> WAN), so it measures the same internet path the LAN uses.
+# alpine + curl + iputils (see Dockerfile); the busybox script is bind-mounted so edits don't
+# need a rebuild. Goes out the normal route (docker bridge -> kappa -> router -> WAN), so it
+# measures the same internet path the LAN uses.
 #
-# Deploy on kappa:  sudo docker compose -f /volume1/docker/mage-hands/net-monitor/compose.yaml up -d
-# Read the log:     tail -f /volume1/docker/mage-hands/net-monitor/data/connectivity.jsonl
+# Deploy on kappa:  sudo docker compose -f /volume1/docker/mage-hands/net-monitor/compose.yaml up -d --build
+# Read the log:     tail -F /volume1/docker/mage-hands/net-monitor/data/connectivity-$(date -u +%F).jsonl
 # Quick summary:    sudo docker exec net-monitor sh /app/summary.sh
 services:
   net-monitor:
-    image: alpine:3.20
+    build: .                                  # Dockerfile adds curl + iputils
+    image: net-monitor:local
     container_name: net-monitor
-    restart: unless-stopped                 # always-on (unlike the ephemeral mage-hands relays); survives reboot
+    restart: unless-stopped                   # always-on (unlike the ephemeral mage-hands relays); survives reboot
     cap_add:
-      - NET_RAW                             # busybox ping needs raw sockets
+      - NET_RAW                               # ping needs raw sockets
     command: ["/bin/sh", "/app/monitor.sh"]
     environment:
-      - INTERVAL=60
+      - INTERVAL=10                           # sample cadence (seconds)
       - GATEWAY=192.168.1.1
-      - TARGETS=1.1.1.1 8.8.8.8
+      - TARGETS=1.1.1.1 8.8.8.8               # WAN v4 ping targets
+      - TARGET6=2606:4700:4700::1111          # WAN v6 target (empty string disables the v6 test)
       - DNS_NAME=google.com
+      # throughput — a speedtest is heavy, so it runs on ITS OWN cadence, not every INTERVAL:
+      - THROUGHPUT_EVERY=21600                # seconds between speedtests (6h; 0 disables)
+      - THROUGHPUT_BYTES=25000000             # download size per test (~25 MB)
+      - THROUGHPUT_UP_BYTES=10000000          # upload size per test (~10 MB; 0 disables upload)
+      # alerting — set a destination to enable (edge-triggered: DOWN / RECOVERED):
+      - ALERT_NTFY_URL=                       # e.g. https://ntfy.sh/your-secret-topic
+      - ALERT_WEBHOOK_URL=                    # generic JSON webhook; POSTs {"text":"..."}
+      - ALERT_AFTER=3                         # consecutive bad samples before paging (~30s at 10s)
+      - ALERT_REPEAT=1800                     # re-page every N s while still down (0 = once)
+      - RETAIN_DAYS=365                       # per-day logs older than this are pruned
     volumes:
       - ./monitor.sh:/app/monitor.sh:ro
       - ./summary.sh:/app/summary.sh:ro
-      - ./data:/data                        # connectivity.jsonl lands here (host-readable)
+      - ./data:/data                          # connectivity-<date>.jsonl lands here (host-readable)
     logging:
       options:
         max-size: "5m"
