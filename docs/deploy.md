@@ -163,39 +163,68 @@ editing `relay-up.sh` / `relay-down.sh` to refresh the copies.
 
 ## 12. Claude Code permissions (on the Mac)
 
-A small helper makes start/stop a single, gateable command:
+A small helper makes start/stop a single command that *also* enables full tool functionality:
+on `up` it pre-authorizes **all** of the appliance's MCP tools in `~/.claude/settings.json`
+(`mcp__<appliance>` matches every tool from that server, including ones added later) and then
+starts the relay. The permission change takes effect on the **next** session (MCP tools and
+settings both load at session start), which is exactly when the relay's tools appear.
 
 ```sh
 cat > ~/.config/mage-hands/relay.sh <<'EOF'
 #!/bin/sh
-# Usage: relay.sh <appliance> up|down  — add a case per appliance.
+# Start/stop a relay; on `up` also pre-authorize ALL of the appliance's MCP tools in
+# ~/.claude/settings.json so a fresh session has full functionality with no per-call prompts.
+# Add a case per appliance.
 APP="$1"; ACT="$2"
 case "$APP" in
   <name>) HOST=<admin>@<nas>.local ;;
   *) echo "unknown appliance: $APP" >&2; exit 2 ;;
 esac
+enable_all_tools() {
+  python3 - "$HOME/.claude/settings.json" "mcp__$APP" <<'PY'
+import json, os, sys
+path, rule = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as f: data = json.load(f)
+except FileNotFoundError:
+    data = {}
+except (OSError, ValueError) as e:
+    print(f"relay.sh: cannot update {path} ({e})", file=sys.stderr); sys.exit(0)
+allow = data.setdefault("permissions", {}).setdefault("allow", [])
+if rule not in allow:
+    allow.append(rule)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w") as f: json.dump(data, f, indent=2); f.write("\n")
+    os.replace(tmp, path)
+    print(f"relay.sh: enabled all '{rule}' tools (effective next session)")
+PY
+}
 case "$ACT" in
-  up|down) ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o LogLevel=ERROR \
-             "$HOST" "sudo -n /usr/local/sbin/mage-hands-relay-$ACT" ;;
+  up)   enable_all_tools
+        ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o LogLevel=ERROR "$HOST" "sudo -n /usr/local/sbin/mage-hands-relay-up" ;;
+  down) ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o LogLevel=ERROR "$HOST" "sudo -n /usr/local/sbin/mage-hands-relay-down" ;;
   *) echo "usage: relay.sh <appliance> up|down" >&2; exit 2 ;;
 esac
 EOF
 chmod +x ~/.config/mage-hands/relay.sh
 ```
 
-Then add permission rules to `~/.claude/settings.json` so read-only tools run freely while
-mutation, raw exec, and starting the relay require approval:
+The only permission rule you must add by hand is the one that lets `relay.sh` run unprompted (it's
+the script that then grants the rest):
 
 ```jsonc
 { "permissions": {
-    "allow": [ "mcp__<name>__system_info", "mcp__<name>__disk_usage",
-               "mcp__<name>__storage_health", "mcp__<name>__list_containers",
-               "mcp__<name>__container_logs", "mcp__<name>__service_status",
-               "mcp__<name>__read_file" ],
-    "ask":   [ "mcp__<name>__restart_container", "mcp__<name>__restart_service",
-               "mcp__<name>__run",
-               "Bash(/Users/<you>/.config/mage-hands/relay.sh:*)" ] } }
+    "allow": [ "Bash(/Users/<you>/.config/mage-hands/relay.sh:*)" ],
+    "ask":   [] } }
 ```
+
+`relay.sh <appliance> up` appends `mcp__<appliance>` to `permissions.allow`, so **every** tool from
+that appliance — read-only audit/diagnose *and* mutation (`restart_*`, `firewall_*`, gated `run`) —
+runs without per-call prompts. The relay's own server-side controls still apply: the catastrophic
+denylist, the two-call `exec_token` gate on `run()`, the identity allowlist, and the audit log. If
+you'd rather keep mutation gated with an approval prompt, omit the `mcp__<appliance>` shortcut and
+instead enumerate only the read-only tools in `allow` (leaving `restart_*`/`firewall_enable`/… out
+so they prompt).
 
 ## Daily operation
 

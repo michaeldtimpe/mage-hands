@@ -61,8 +61,8 @@ The relay exposes capabilities in three tiers (see ARCHITECTURE.md):
 
 | Tier | Nature | Examples | Gating |
 |------|--------|----------|--------|
-| **A** | inspection (read-only) | `system_info`, `disk_usage`, `storage_health`, `list_containers`, `internet_exposure`, `performance`, `pending_updates`, `read_file` | none; `read_file` is allow/deny policied |
-| **B** | controlled mutation | `restart_container`, `restart_service` | typed args, audited |
+| **A** | inspection (read-only) | `system_info`, `disk_usage`, `storage_health`, `list_containers`, `internet_exposure`, `performance`, `pending_updates`, `firewall_status`, `firewall_rules`, `firewall_diagnose`, `read_file` | none; `read_file` is allow/deny policied |
+| **B** | controlled mutation | `restart_container`, `restart_service`, `firewall_enable`, `firewall_disable`, `firewall_reload`, `firewall_set_rules` | typed args, audited; `firewall_set_rules` is lock-out-guarded |
 | **C** | raw root exec | `run(command, exec_token)` | dry-run → one-time replay token + catastrophic-pattern denylist |
 
 ## Repository layout
@@ -84,7 +84,7 @@ mage-hands/
 │   ├── scripts/                  # relay-up/down · idle-watchdog · tailscale-update · install-sudo · smoke-test.py
 │   └── README.md
 ├── router-hands/                 # appliance #2: ASUS Merlin router (SSHRunner + Tailscale sidecar)
-│   ├── server.py                 # Tier A/B router tools; SSHRunner; read_file + opt-in run()
+│   ├── server.py                 # Tier A/B router tools; SSHRunner; read_file + run() (on by default)
 │   ├── Dockerfile  compose.yaml  serve.json  .env.example
 │   ├── scripts/                  # relay-up/down · idle-watchdog · install-sudo · smoke-test.py
 │   └── README.md

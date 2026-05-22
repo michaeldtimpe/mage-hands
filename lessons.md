@@ -297,3 +297,86 @@ rename: the device is `nvc*` for "NVMe cache" by naming convention, but it's SAT
 assumes a standard transport — the box has usually already done the read, and the standard tool's
 *name* (`-d nvme`) can be a lie about what's physically there. When a health probe errors, ask
 whether you reached for the wrong oracle before concluding the data is unavailable.
+
+## The vendor webapi is the right oracle for *writes* too — and `profile_applying:true` is a trap
+
+Building the DSM firewall tools, the read side was the familiar wrong-oracle dance: the
+enable state is **not** in `/etc/synoinfo.conf` (`synogetkeyvalue` there returns rc 0 + empty —
+the same false-negative that hid QuickConnect), it's in `synofirewall --info` (`fw_enabled`),
+the `SYNO.Core.Security.Firewall get` webapi, and `firewall.d/firewall_settings.json` — so the
+tool reads all three and only calls it "authoritative" when they agree. (Also: `iptables -S INPUT`
+errors *"No chain by that name"* on kappa's 4.4 kernel while `iptables -S` works — parse the whole
+table, never a single chain.) But the sharper lesson was on the **write** side. DSM stores rules
+two ways: the profile JSON uses opaque integers (`policy:0`, `ipGroup:1`, `ipType:0`,
+`ipList:["192.168.1.0","24"]` for a `/24`), while the webapi speaks clean strings
+(`policy:"allow"`, `source_ip_group:"netmask"`, `source_ip:"192.168.1.0/24"`). Hand-encoding the
+integer form would have been a guess-the-codes minefield; writing through `Profile set` lets DSM
+encode it. The trap surfaced in a **reversible experiment on the non-active profile with the
+firewall off**: `Profile set` with `profile_applying:true` returned `success:true` but the rules
+**did not persist** — it's a two-phase commit that writes a `.test_<name>` *staging* profile and
+needs a follow-up `Profile.Apply` to promote it; the Apply 120'd (non-active profile), so nothing
+committed *and* it orphaned the staging profile (`num_profiles` silently went 2→3). The correct
+primitive is `profile_applying:false` (persists directly, no staging) plus `synofirewall --reload`
+to push live only when editing the active profile.
+
+**Lesson:** the "ask the vendor's own tool" rule extends past reads — when a config has a clean
+API representation and an opaque on-disk one, mutate through the API so the box does the encoding.
+And prove a write *persisted* by reading it back, not by trusting a `success:true`: a two-phase
+"apply" flow can report success on the staging write while the durable state is unchanged (and
+leaves litter). Test mutations reversibly on an inactive/duplicate object first — it's how you find
+the staging-orphan before it's your production profile.
+
+## Userspace Tailscale means the firewall can't lock out the *relay* — so guard the human
+
+The scary part of a firewall `set_rules` tool is stranding your own access (the `ALLOWED_USERS`
+"deploy empty, then tighten" fear, but worse — a default-deny mistake locks you out at the network
+layer). Reasoning about *who* could be stranded changed the whole guard design. These boxes run
+Tailscale in **userspace** mode: there is no `tailscale0` interface; ingress is
+`tailscale serve` → loopback, and DSM's generated `INPUT_FIREWALL` chain **always** begins
+`-i lo -j ACCEPT` + `ESTABLISHED,RELATED -j ACCEPT`. So the relay's MCP path — and any
+tailnet-sourced admin, which also lands on loopback — can **never** be cut by the firewall; it only
+governs the physical LAN adapter (`ovs_bond0`). The real lock-out risk is a *human's direct LAN
+SSH/DSM*, the fallback you'd want if the relay were down. So the guard doesn't try to protect the
+bot (it's structurally safe); it simulates first-match rule evaluation for SSH(22)/DSM(5000/5001)
+from the operator's declared LAN source and refuses any rule set that would deny them.
+
+**Lesson:** before building a "don't strand yourself" guard, map the actual ingress paths and ask
+which of them the control can even reach. Here the agent's own path was immune (loopback) and the
+human's was not — so the guard protects the human. A safety check aimed at the wrong victim is
+just friction; aim it at the access path that the change can actually sever.
+
+## `nvram get <missing>` returns rc 0 + empty — the router-hands twin of the QuickConnect miss
+
+On Asuswrt-Merlin, `nvram get <key-that-does-not-exist>` (and an unset/stripped key) exits **0 with
+an empty string** — byte-for-byte the same trap that false-cleared QuickConnect on the NAS (a probe
+that "succeeded" but was semantically empty, read as "feature off"). When `router-hands` grew an
+`internet_exposure` tool whose whole job is to *not* report a wide-open box as closed, every channel
+had to map **empty → `unknown`/`null`, never `disabled`** (and SSH's `sshd_enable=1↔2` LAN-vs-WAN
+meaning has flipped across firmwares, so a nonzero value is `scope: "unknown (verify)"`, not "lan" —
+a false-negative on WAN SSH is worse than a false-positive).
+
+**Lesson:** "successful exit + empty output" is *absence of evidence*, not evidence of absence —
+treat it as `unknown`, the same way across appliances. Other Merlin gotchas from the same build:
+BusyBox `ps` has no `-eo/--sort` (use `top -bn1`, keep the **raw** lines — column order varies by
+build; trust the two-sample `/proc/stat` delta for CPU, not top's header); CPU temp lives in
+`/proc/dmu/temperature` and per-radio `wl -i <if> phy_tempsense` (which errors if the radio is
+down), **not** `/sys/class/thermal`; never `nvram show` in a tool (it dumps `http_passwd`/
+`*_wpa_psk`/`ddns_passwd`/VPN keys) — read a fixed safe-key allowlist and assert at import that no
+allowlisted key looks secret.
+
+## A reboot bypass the *default-on* flip activates: lexical denylists miss `service reboot`
+
+`DEFAULT_DENY` anchors `reboot|shutdown|...` to *command position* (`_CMD`), which is right for the
+NAS but leaves Merlin-valid indirect triggers wide open — verified empirically that `service reboot`,
+`init 6`/`telinit 6`, `busybox reboot`, `rc reboot`, and `killall rc` all **pass** the core denylist.
+Harmless while router `run()` was opt-in; the moment we flipped it **on by default** (for
+synology-parity) those became live, ungated reboot paths. We added them to `ROUTER_DENY_EXTRA` so the
+approval+`confirm`-gated `reboot_router` stays the only *intended* path — while documenting that
+`sh -c reboot`/`echo reboot|sh` remain evadable (the denylist is a lexical backstop, not containment).
+
+**Lesson:** turning a gated capability on by default isn't just a config change — it re-scopes the
+threat model. Re-audit the backstops *against the target's own command vocabulary* (a multiplexer
+like `service <verb>` or an alternate runlevel like `init 6` defeats a command-position regex), and
+keep the prose honest: "the only directly-intended path," not "the only possible path." Also: a tool
+that severs its own transport (`reboot` over SSH) must treat `transport_error`/rc 255 — and the
+uncaught `subprocess.TimeoutExpired` from the executor — as *expected success*, not failure.

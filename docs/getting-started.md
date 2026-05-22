@@ -20,8 +20,8 @@ session so the tools load.
 ~/.config/mage-hands/relay.sh kappa down
 ```
 
-Claude can also bring the relay up itself — starting it is gated by an **approval prompt**
-(see [Permissions](#permissions) below).
+Claude can also bring the relay up itself — it runs the same `relay.sh` helper, allowed without a
+prompt via the `Bash(...relay.sh:*)` rule (see [Permissions](#permissions) below).
 
 ## 1. Bring the relay up
 
@@ -35,6 +35,13 @@ From the Mac (uses key-based SSH + the NAS's scoped passwordless sudo, so no pas
 This runs the root-owned `mage-hands-relay-up` on the NAS, which builds (cached after the first
 time), waits for the container to report healthy, then exposes it via Tailscale Serve. It's done
 when you see `synology-hands is up and served over Tailscale.`
+
+`up` also **enables full tool functionality in one command**: it adds `mcp__<appliance>` to
+`permissions.allow` in `~/.claude/settings.json`, so *every* tool from that appliance — read-only
+audit/diagnose **and** mutation (`restart_*`, `firewall_*`, gated `run`) — runs without per-call
+approval prompts in your next session. (The relay's server-side controls still apply: the
+catastrophic denylist, the two-call `exec_token` gate on `run()`, the identity allowlist, and the
+audit log.) Prefer per-call gating instead? See [Permissions](#permissions).
 
 > **Claude starting it:** if you ask Claude to start the relay, it runs the same helper — and
 > because that command is on the permissions `ask` list, you'll get an approval prompt first.
@@ -60,9 +67,11 @@ Inside the session, `/mcp` shows the server and its tools as `mcp__kappa__*`. If
 
 > **router1** (the ASUS Merlin router) works the same way — `~/.config/mage-hands/relay.sh router1 up`,
 > then a fresh session — but exposes **router** tools instead of NAS tools: `system_info`,
-> `diagnostics`, `clients`, `dhcp_leases`, `wan_status`, `interfaces`, `firewall_show`, `read_file`
-> (auto-run), with `restart_service` gated and `run` only present when enabled. Its relay runs on
-> kappa and reaches the router over SSH. Register once with
+> `diagnostics`, `clients`, `dhcp_leases`, `wan_status`, `interfaces`, `firewall_show`, `disk_usage`,
+> `performance`, `pending_updates`, `internet_exposure`, `read_file` (auto-run), with
+> `restart_service` and `reboot_router` (approval+`confirm`-gated) gated, and `run` present by default
+> (`ROUTER_ENABLE_RUN=false` to disable). Its relay runs on kappa and reaches the router over SSH.
+> Register once with
 > `claude mcp add --transport http --scope user router1 https://router1.<tailnet>.ts.net/mcp --header "Authorization: Bearer $(cat ~/.config/nas-relay/router1.token)"`.
 > See [../router-hands/README.md](../router-hands/README.md).
 
@@ -81,8 +90,13 @@ audited):
 | check internet exposure (QuickConnect / DDNS / UPnP / port-forward / reverse-proxy) | `internet_exposure` | A |
 | see resource pressure (load, memory, swap, iowait, top processes, temps) | `performance` | A |
 | check for DSM / package / vendor (Tailscale) updates | `pending_updates` | A |
+| audit the DSM firewall (enabled? enforced? active profile?) | `firewall_status` | A |
+| list a firewall profile's rules (+ generated iptables) | `firewall_rules` | A |
+| diagnose firewall issues (config↔runtime drift, admin reachability) | `firewall_diagnose` | A |
 | read a config/log file (allowlisted paths) | `read_file` | A |
 | restart a container or DSM service | `restart_container`, `restart_service` | B (mutation) |
+| enable / disable / reload the DSM firewall | `firewall_enable`, `firewall_disable`, `firewall_reload` | B |
+| edit a firewall profile's allow-list (lock-out-guarded) | `firewall_set_rules` | B |
 | run an arbitrary root command | `run` | C (gated) |
 
 Example prompts:
@@ -106,19 +120,25 @@ Good habit: ask Claude to **dry-run and show you the command first**, then confi
 
 ## Permissions
 
-A fresh session applies these rules from `~/.claude/settings.json` so routine work is
-frictionless but anything with side effects pauses for you:
+A fresh session applies the rules from `~/.claude/settings.json`. Because `relay.sh <appliance> up`
+adds `mcp__<appliance>` to `permissions.allow`, **all** of that appliance's tools run without
+per-call prompts once you start the next session:
 
 | Action | Behavior |
 |--------|----------|
-| Read-only tools (`system_info`, `disk_usage`, `storage_health`, `list_containers`, `container_logs`, `service_status`, `internet_exposure`, `performance`, `pending_updates`, `read_file`) | **auto-run**, no prompt |
-| Mutation tools (`restart_container`, `restart_service`) | **approval prompt** each call |
-| Raw exec (`run`) | **approval prompt** each call |
-| Starting/stopping the relay (`relay.sh`) | **approval prompt** |
+| Every appliance tool — read-only (`firewall_status`, `firewall_diagnose`, `system_info`, …) **and** mutation (`restart_*`, `firewall_enable`/`firewall_set_rules`/…, gated `run`) | **auto-run** (granted by `mcp__<appliance>`) |
+| Starting/stopping the relay (`relay.sh`) | runs unprompted via the `Bash(...relay.sh:*)` allow rule |
 
-So Claude can investigate freely, but you approve every change. (On the NAS side, scoped
-passwordless sudo only covers the relay lifecycle; any genuinely destructive sudo still needs
-the password, which Claude doesn't have.)
+Frictionless by design — the safety lives on the relay, not in per-call prompts: the catastrophic
+denylist, the two-call `exec_token` gate on `run()`, the Tailscale identity allowlist, the audit
+log, and (on the NAS) scoped passwordless sudo that covers only the relay lifecycle — any genuinely
+destructive sudo still needs the password, which Claude doesn't have. `firewall_set_rules` adds its
+own lock-out guard.
+
+**Want changes gated instead?** Don't use the `mcp__<appliance>` shortcut: remove it from `allow`
+and enumerate only the read-only tools there, leaving mutation tools out so they prompt each call.
+(If you do this, `relay.sh up` will re-add the shortcut — drop the `enable_all_tools` call from the
+script too.)
 
 ## Bring it down
 

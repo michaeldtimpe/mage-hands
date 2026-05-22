@@ -116,6 +116,40 @@ Auto-block lives in the `SYNO.Core.Security.AutoBlock` webapi (not a conf file).
 is in `/etc/ssh/sshd_config` (`PasswordAuthentication no`, then `synosystemctl reload-or-restart
 sshd`) — note DSM may rewrite this file on a DSM update, so re-check after upgrades.
 
+## DSM firewall (audit, change, diagnose)
+
+The relay exposes dedicated firewall tools (`synology-hands/firewall.py`) — prefer them over raw
+`run()`:
+
+- **Audit:** `firewall_status` (enabled? actually enforced? active profile? — corroborated across
+  `synofirewall --info`, the `SYNO.Core.Security.Firewall` webapi, and `firewall.d/firewall_settings.json`,
+  so a single wrong oracle can't false-negative it) and `firewall_rules` (a profile's rules in the
+  clean webapi form + the iptables `synofirewall --enum IPV4` would generate).
+- **Diagnose:** `firewall_diagnose(management_source="<your LAN CIDR>")` — reconciles configured-vs-
+  enforced state (flags "enabled but never reloaded" drift), checks geoip readiness, and **simulates
+  whether SSH/DSM admin survives** from your LAN.
+- **Change:** `firewall_enable` / `firewall_disable` / `firewall_reload`, and `firewall_set_rules`
+  (replaces a profile's global rule list). `set_rules` writes through `SYNO.Core.Security.Firewall.Profile
+  set` with `profile_applying:false` then `synofirewall --reload` if the edited profile is active —
+  it never hand-encodes the integer rule form, and a **lock-out guard** refuses any change that would
+  deny SSH/DSM from `management_source` (override with `override_lockout_guard=True`).
+
+Key facts (empirically verified on kappa, DSM 7.2.1; both boxes have the firewall **off** today —
+the audit's standing P1-3):
+
+- Tailscale runs **userspace** (no `tailscale0`); ingress is `tailscale serve` → loopback, which the
+  firewall's `INPUT_FIREWALL` chain always `ACCEPT`s. **Enabling the firewall cannot cut the relay or
+  tailnet admin** — it governs the physical LAN (`ovs_bond0`) only. The lock-out risk is *direct LAN*
+  SSH/DSM, so before `firewall_enable` run `firewall_diagnose(management_source=<LAN CIDR>)` and make
+  sure the active profile allows ssh+dms from your subnet.
+- `profile_applying:true` is a **two-phase staging commit** — it writes a `.test_<name>` profile and
+  needs a successful `Profile.Apply`; a failed Apply (e.g. error 120 on a non-active profile) doesn't
+  persist *and* orphans the staging file (`num_profiles` creeps up). The tools deliberately avoid it.
+- Raw CLI if you must: `synofirewall --info | --enable | --disable | --reload | --enum IPV4 |
+  --profile-list | --export | --import <file>`. To recover from an orphaned staging profile, delete
+  the stray timestamp-named `*.json` under `/usr/syno/etc/firewall.d/` (keep `1.json`/`2.json`/
+  `firewall_settings.json`).
+
 ## Re-running the audit
 
 The 2026-05 audit is **not** a one-shot artifact — re-run it against the *new* tools and correct

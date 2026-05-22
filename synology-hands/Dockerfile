@@ -12,8 +12,9 @@ RUN apt-get update \
 COPY common /app/common
 RUN uv pip install --system /app/common
 
-# Appliance-specific server.
+# Appliance-specific server + its modules.
 COPY synology-hands/server.py /app/server.py
+COPY synology-hands/firewall.py /app/firewall.py
 WORKDIR /app
 
 CMD ["python", "server.py"]

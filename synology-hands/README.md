@@ -80,8 +80,11 @@ sh scripts/relay-down.sh     # tailscale serve reset + docker compose down
 ## Tools
 
 - **Tier A (inspection):** `system_info`, `disk_usage`, `storage_health`, `list_containers`,
-  `container_logs`, `service_status`, `read_file` (allow/deny policied).
-- **Tier B (controlled mutation):** `restart_container`, `restart_service`.
+  `container_logs`, `service_status`, `internet_exposure`, `performance`, `pending_updates`,
+  `firewall_status`, `firewall_rules`, `firewall_diagnose`, `read_file` (allow/deny policied).
+- **Tier B (controlled mutation):** `restart_container`, `restart_service`, and the DSM firewall
+  tools `firewall_enable` / `firewall_disable` / `firewall_reload` / `firewall_set_rules` (the
+  rule editor is lock-out-guarded; see `firewall.py`).
 - **Tier C (raw exec):** `run(command, exec_token)` — dry-run first, replay the token to execute;
   catastrophic patterns refused outright. Edit `READ_ALLOW` / `READ_DENY` in `server.py` to tune
   the read policy per box.

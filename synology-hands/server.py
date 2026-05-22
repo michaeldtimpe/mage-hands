@@ -22,6 +22,8 @@ from mage_hands_core import (
     run_server,
 )
 
+from firewall import register_firewall_tools
+
 INSTRUCTIONS = (
     "You operate directly on the Synology HOST namespace via this relay. File paths are "
     "host-absolute to the NAS storage pools (e.g. /volume1/...), NOT inside a container. "
@@ -147,6 +149,9 @@ def main() -> None:
         DSM 7 replaced synoservicectl with synosystemctl; the old binary 404s on 7.x.
         """
         return host.run(["synosystemctl", "reload-or-restart", name])
+
+    # ---- DSM firewall: Tier-A audit/diagnose + Tier-B guarded mutation (see firewall.py) ----
+    register_firewall_tools(mcp, host)
 
     # ---- Tier A: policied file read (additive-first; full replace only with override) ----
     if cfg.read_policy_override:
