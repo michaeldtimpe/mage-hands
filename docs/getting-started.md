@@ -10,7 +10,7 @@ session so the tools load.
 
 ```sh
 # 1. Bring a relay up from the Mac (scoped passwordless sudo — no password).
-#    Appliances: kappa, alpha (both expose the same tools).
+#    Appliances: kappa, alpha (NAS tools); router1 (ASUS Merlin router tools — its relay runs on kappa).
 ~/.config/mage-hands/relay.sh kappa up
 
 # 2. Start a NEW Claude Code session on your Mac.
@@ -57,6 +57,14 @@ Inside the session, `/mcp` shows the server and its tools as `mcp__kappa__*`. If
 >   https://kappa.<tailnet>.ts.net/mcp \
 >   --header "Authorization: Bearer $(cat ~/.config/nas-relay/kappa.token)"
 > ```
+
+> **router1** (the ASUS Merlin router) works the same way — `~/.config/mage-hands/relay.sh router1 up`,
+> then a fresh session — but exposes **router** tools instead of NAS tools: `system_info`,
+> `diagnostics`, `clients`, `dhcp_leases`, `wan_status`, `interfaces`, `firewall_show`, `read_file`
+> (auto-run), with `restart_service` gated and `run` only present when enabled. Its relay runs on
+> kappa and reaches the router over SSH. Register once with
+> `claude mcp add --transport http --scope user router1 https://router1.<tailnet>.ts.net/mcp --header "Authorization: Bearer $(cat ~/.config/nas-relay/router1.token)"`.
+> See [../router-hands/README.md](../router-hands/README.md).
 
 ## 3. What you can ask for
 

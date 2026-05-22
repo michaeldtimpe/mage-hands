@@ -69,3 +69,41 @@ sudo docker logs --tail 50 synology-hands                          # server logs
 pgrep -fc server.py                                                # 0 = relay stopped (idle)
 sudo tail -5 /volume1/docker/mage-hands/synology-hands/logs/audit.jsonl   # who called what
 ```
+
+## router-hands (SSHRunner relay + Tailscale sidecar, on kappa)
+
+router-hands runs as a two-container stack on kappa (`router-hands` relay + `router-hands-ts`
+sidecar) and reaches the ASUS Merlin router over SSH. Its idle-watchdog Task Scheduler job points
+at `…/router-hands/scripts/idle-watchdog.sh`.
+
+```sh
+# Health / state
+sudo docker inspect -f '{{.State.Health.Status}}' router-hands            # relay healthy?
+sudo docker logs --tail 50 router-hands                                   # server logs (incl. run()-disabled / accept-new warnings)
+sudo docker exec router-hands-ts tailscale status --peers=false           # sidecar joined the tailnet?
+sudo tail -5 /volume1/docker/mage-hands/router-hands/logs/audit.jsonl     # who called what
+# Prove the relay can still reach the router (the userspace-netns egress path):
+sudo docker exec router-hands sh -c 'ssh -o BatchMode=yes -i /secrets/router_key -p "${ROUTER_PORT:-22}" "${ROUTER_USER:-admin}@${ROUTER_HOST}" true' && echo egress-OK
+```
+
+**Updating the sidecar Tailscale** — it's a pinned image (`tailscale/tailscale:v1.98.2` in
+`compose.yaml`), not Package Center, so just bump the tag and recreate:
+
+```sh
+cd /volume1/docker/mage-hands/router-hands
+sudo /usr/local/bin/docker compose pull tailscale && sudo /usr/local/bin/docker compose up -d
+```
+
+**Rotating `TS_AUTHKEY`** — the `router1` node identity persists in `./ts-state` once joined, so
+day-to-day recreates don't re-auth. But auth keys expire: if the key expires *and* `ts-state` is
+wiped, bring-up fails to join — issue a fresh reusable+ephemeral+tagged key, update `.env`, and
+`compose up -d --force-recreate`.
+
+**Rotating the router SSH key** — regenerate on the Mac, replace `router-hands/secrets/router_id_ed25519`
+(chmod 600) on kappa, update the router's authorized keys, then recreate. If the **router's host
+key** changes (e.g. firmware reflash), re-run `ssh-keyscan` into `secrets/known_hosts` or SSH will
+refuse to connect (pinned host key mismatch).
+
+**Sidecar-crash gap** — `depends_on` gates startup only. If `router-hands-ts` dies at runtime, the
+relay keeps running on a broken netns until the idle watchdog tears the stack down; just
+`relay.sh router1 down` then `up` to recover.

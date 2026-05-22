@@ -176,3 +176,35 @@ fix was a daemon restart (immediate) + version update (durable), nothing to do w
 
 **Lesson:** a new component is a tempting scapegoat for a pre-existing/adjacent problem. Attribute
 load to a measured PID before redesigning the thing you just shipped.
+
+## A new target type is a Runner, not a fork
+
+Adding the ASUS Merlin router — a box with no Docker, no nsenter, and a BusyBox userland — turned
+out to need *zero* changes to the gating, audit, read-policy, or tool-dispatch code. It was one new
+`Runner` (`SSHRunner`) plus a `runner_reader` for reads-over-the-Runner. Everything above the
+transport seam (`run()`'s dry-run/token gate, `DEFAULT_DENY`, `PathPolicy`, the audit middleware)
+was already transport-agnostic because it only ever calls `runner.run([...])`. The router itself
+stays stock: SSH on + one public key. Two real gotchas surfaced at the transport, though:
+dropbear gives non-interactive sessions a near-empty environment and ignores `AcceptEnv`, so bare
+tool names (`wl`, `nvram`, `iptables`) die with exit 127 until you prepend an explicit `PATH`; and
+`shlex.join` (not token-passing after `--`) is the load-bearing choice that makes `["sh","-c",cmd]`
+round-trip with exactly one remote shell evaluation.
+
+**Lesson:** if your dangerous-operation gating sits above a clean execution seam, a wholly
+different *kind* of target is an additive Runner, not a new codebase. But verify the remote shell's
+environment assumptions — a stripped PATH and quoting are where "it works locally" breaks.
+
+## Give the appliance its own identity with a sidecar, not a borrowed port
+
+router-hands runs on kappa, whose `:443` is already serving synology-hands. Rather than multiplex
+paths on kappa's node, the relay shares a network namespace with a `tailscale/tailscale` **sidecar**
+(`network_mode: service:tailscale`) that joins the tailnet as its own node `router1` and serves
+declaratively (`TS_SERVE_CONFIG`). Clean MagicDNS, no privileged container, no host-port juggling.
+Two edges to know: the relay must bind `127.0.0.1` *inside the shared netns* (so the smoke test runs
+from inside the container, not kappa's host loopback), and in userspace mode (`TS_USERSPACE=true`)
+only tailnet traffic uses the netstack — LAN egress to the router rides the Docker bridge, so
+`relay-up.sh` verifies SSH reachability explicitly (fall back to kernel-TUN if it fails).
+
+**Lesson:** when a second appliance lands on a host that already owns `:443`, give it its own tailnet
+identity with a sidecar instead of contorting the existing node — but remember that "share the
+sidecar's namespace" changes where loopback lives and how non-tailnet egress is routed.

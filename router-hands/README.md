@@ -1,39 +1,159 @@
-# router-hands (planned)
+# router-hands
 
-Second appliance relay, reusing `mage_hands_core`. Placeholder — not yet implemented.
+MCP relay for administering an **ASUS router running Asuswrt-Merlin**, reusing `mage_hands_core`.
 
-The point of the monorepo split is that this directory should be small: the auth, audit,
-gated `run()`, and read-policy machinery all come from `common/`. router-hands only needs to
-supply **how to execute on the router** (a Runner) and **what to expose** (tools).
+Unlike `synology-hands` (a privileged container driving its *own* host via `nsenter`), a consumer
+Merlin router has **no Docker** and a constrained BusyBox userland, so the relay can't run on it.
+Instead the relay runs in an **unprivileged container on a NAS** (`kappa`) and reaches the router
+**over SSH** (`SSHRunner`). The router is left stock except: enable SSH + add one public key.
 
-## Sketch
+Because `kappa`'s `:443` is already used by `synology-hands`, router-hands gets its **own tailnet
+node** via a **Tailscale sidecar container**, reachable at `https://router1.<tailnet>.ts.net/mcp`.
 
-```python
-from mage_hands_core import (Config, build_server, run_server,
-                             register_run_tool, PathPolicy, fs_reader, register_read_file)
-
-cfg  = Config.from_env()
-mcp  = build_server("router-hands", INSTRUCTIONS, cfg)
-host = <Runner>          # pick based on the router:
-                         #   - ShellRunner  if the relay runs ON the router (e.g. OpenWrt container/native)
-                         #   - NsenterRunner if it's a privileged container on a Linux router host
-                         #   - a new SSHRunner (add to common/exec.py) if the relay runs beside the
-                         #     router and reaches it over SSH
-
-# @mcp.tool() ... router tools: interface_status, dhcp_leases, firewall_show,
-#                 reload_config, restart_service, ...
-
-register_read_file(mcp, PathPolicy(allow=[...], deny=[...]), fs_reader("/host"))
-register_run_tool(mcp, host)
-run_server(mcp, cfg)
+```
+Mac (Claude) ──https──> router1.<tailnet>.ts.net:443        [container stack on kappa]
+                          │  tailscale sidecar (node "router1", userspace)
+                          │   declarative serve (serve.json) → 127.0.0.1:8788
+                          ▼  (shared netns: network_mode service:tailscale)
+                         relay container (UNprivileged) FastMCP /mcp
+                          │   token auth + audit + run()-gate + read policy  (from common/)
+                          ▼  ssh -i /secrets/router_key admin@<router>  (egress over the LAN)
+                         ASUS Merlin router (BusyBox + dropbear) — runs commands as root
 ```
 
-## What likely needs to move into `common/` when this is built
+## Trust model (read this)
 
-- An `SSHRunner` (if the relay talks to the router over SSH rather than running on it).
-- Any router platforms that aren't Linux-shell friendly may need a different read strategy
-  than `fs_reader` (e.g. a reader that fetches via the Runner). `register_read_file` already
-  takes an arbitrary `reader` callable for exactly this.
+Two guarantees are weaker here than on the NAS relays — by design, and the controls are placed
+accordingly:
 
-Each router gets its own `RELAY_TOKEN`, MagicDNS name, and `claude mcp add` entry (e.g.
-`router1`), same as the NAS fleet.
+- **`read_file` over SSH is best-effort constrained reading on a *trusted* appliance, not
+  filesystem confinement.** `PathPolicy` is lexical and can't resolve *remote* symlinks, so the
+  explicit `READ_DENY` list (dropbear keys, VPN/cert material, `/etc/shadow`, world-writable
+  `/var/tmp`·`/tmp/var`) is the real boundary. Keep ALLOW roots conservative.
+- **`run()` is OFF by default** (`ROUTER_ENABLE_RUN`). Arbitrary root on a soft-brickable router is
+  a different blast radius than NAS inspection. When enabled it still keeps the dry-run/exec_token
+  gate + a router-tuned denylist (blocks firmware flash, `nvram erase`, factory reset, mtd writes,
+  and inherits the core backstops incl. reboot/shutdown). The denylist is a *guardrail, not a
+  sandbox* — real safety is the gate + audit + ephemerality + human approval.
+
+## Tools
+
+| Tool | Tier | What it does |
+|------|------|--------------|
+| `system_info` | A (read) | kernel (`uname -a`), Merlin firmware (build/version), uptime, load, memory |
+| `diagnostics` | A | SSH transport self-test: reachability, latency, `transport_error`, PATH sanity |
+| `clients` | A | connected clients + WiFi associations (`/tmp/clientlist.json`, ARP, `wl assoclist`) |
+| `dhcp_leases` | A | active dnsmasq leases |
+| `wan_status` | A | WAN0/WAN1 state/IP/gateway/proto/DNS (dual-WAN aware) |
+| `interfaces` | A | `ifconfig` / `ip -s addr` / `/proc/net/dev` counters |
+| `firewall_show` | A | iptables filter + NAT tables (read-only) |
+| `read_file` | A | policied file read over SSH (allow/deny roots) |
+| `restart_service` | B (mutation) | Merlin `service restart_<name>` for an allowlisted set |
+| `run` | C (gated, **opt-in**) | arbitrary root over SSH — only present if `ROUTER_ENABLE_RUN=true` |
+
+## Prerequisites
+
+- A NAS host that runs Docker and is on your tailnet (we use **kappa**), with this repo synced to
+  `/volume1/docker/mage-hands` (the image build context is the **repo root**).
+- A Tailscale **auth key** (reusable + ephemeral + tag, e.g. `tag:relay`) for the `router1` node,
+  and MagicDNS + HTTPS certs enabled on the tailnet.
+- **SSH enabled on the router** (Asuswrt-Merlin: Administration → System → Enable SSH) and the
+  relay's public key in its authorized keys. The router needs nothing else.
+
+## Deploy (on/from the Mac → kappa)
+
+1. **Generate the router SSH key on the Mac** (keeps the private key off the router's shell history):
+   ```sh
+   ssh-keygen -t ed25519 -f ~/.ssh/router_id_ed25519 -C "router-hands@kappa" -N ""
+   ```
+   Add `~/.ssh/router_id_ed25519.pub` to the router (WebUI → Administration → System → "SSH
+   Authorized Keys"). Confirm it works: `ssh -i ~/.ssh/router_id_ed25519 admin@<router> true`.
+
+2. **Pre-create the runtime dirs on kappa** (gitignored; not in the repo) and place the secrets:
+   ```sh
+   ssh <admin>@kappa.local '
+     B=/volume1/docker/mage-hands/router-hands
+     sudo install -d -m 700 -o root -g root "$B/logs"
+     install -d "$B/ts-state" "$B/secrets"'
+   scp ~/.ssh/router_id_ed25519 <admin>@kappa.local:/volume1/docker/mage-hands/router-hands/secrets/
+   ssh <admin>@kappa.local 'chmod 600 /volume1/docker/mage-hands/router-hands/secrets/router_id_ed25519'
+   # Pin the router host key (verify the fingerprint against the router WebUI before trusting it):
+   ssh <admin>@kappa.local 'ssh-keyscan -p 22 <router> > /volume1/docker/mage-hands/router-hands/secrets/known_hosts'
+   ```
+
+3. **Write `.env` on kappa** (`cp .env.example .env`, chmod 600). Fill `RELAY_TOKEN`
+   (`openssl rand -hex 32`, also saved to `~/.config/nas-relay/router1.token` on the Mac),
+   `TS_AUTHKEY`, `ROUTER_HOST`/`ROUTER_USER`, and keep `ALLOWED_USERS` **empty** for first bring-up.
+   `BIND_HOST=127.0.0.1` and `PORT=8788` are required (the relay binds loopback inside the sidecar
+   netns). On the very first connect you may set `ROUTER_STRICT_HOST_KEY=accept-new`, then flip back
+   to `yes` (the relay warns loudly if you leave `accept-new` on with a populated `known_hosts`).
+
+4. **Bring it up** (builds the relay, pulls the pinned Tailscale image, starts both):
+   ```sh
+   ssh <admin>@kappa.local 'sudo sh /volume1/docker/mage-hands/router-hands/scripts/relay-up.sh'
+   ```
+   It waits for the relay to be healthy, prints the sidecar's tailnet status, and runs a
+   **SSH-egress PASS/FAIL** check (proves the relay can reach the router — see the egress note
+   below).
+
+5. **Smoke-test from inside the container** (8788 is on the sidecar's netns loopback, not kappa's):
+   ```sh
+   ssh <admin>@kappa.local '
+     cd /volume1/docker/mage-hands/router-hands
+     TOK=$(grep ^RELAY_TOKEN= .env | cut -d= -f2-)
+     sudo docker exec -i -e RELAY_TOKEN="$TOK" router-hands python - < scripts/smoke-test.py'
+   ```
+
+6. **Connect from the Mac**, make one call, learn your identity, then lock the allowlist:
+   ```sh
+   claude mcp add --transport http --scope user router1 \
+     https://router1.<tailnet>.ts.net/mcp \
+     --header "Authorization: Bearer $(cat ~/.config/nas-relay/router1.token)"
+   # ask Claude for `system_info`, then:
+   ssh <admin>@kappa.local 'sudo tail -1 /volume1/docker/mage-hands/router-hands/logs/audit.jsonl'  # -> "user": ...
+   ```
+   Set `ALLOWED_USERS` to that Tailscale login in `.env` and `sudo docker compose up -d --force-recreate`.
+
+7. **Tailscale ACL:** tag `router1` and grant only your identity `tcp:443` (same shape as the NAS).
+
+8. **Idle watchdog:** add a DSM Task Scheduler root job (every 5 min) running
+   `…/router-hands/scripts/idle-watchdog.sh` — stops the stack after 30 min idle.
+
+9. **Scoped passwordless sudo:** `sudo sh …/router-hands/scripts/install-sudo.sh` (installs
+   `/usr/local/sbin/mage-hands-router-relay-{up,down}` + `/etc/sudoers.d/mage-hands-router`,
+   distinct from synology's so they coexist).
+
+10. **Mac wiring:** add a `router1` case to `~/.config/mage-hands/relay.sh` whose host is
+    **kappa** (the container host, not the router) calling `mage-hands-router-relay-{up,down}`, and
+    add `mcp__router1__*` rules to `~/.claude/settings.json` (read-only tools in `allow`;
+    `restart_service`/`run` + the `relay.sh` helper in `ask`). See [docs/deploy.md](../docs/deploy.md).
+
+## SSH egress note (the one thing to verify)
+
+The sidecar runs Tailscale in **userspace** mode (`TS_USERSPACE=true`) so the stack stays
+unprivileged. Tailnet traffic uses the userspace netstack; SSH to the router's **LAN** IP egresses
+via the container's Docker bridge — which works as long as kappa can reach the router (it's on the
+same LAN). `relay-up.sh` prints `SSH egress to router: PASS/FAIL`. If it ever FAILs, switch the
+sidecar to kernel-TUN mode: set `TS_USERSPACE=false` and add to the `tailscale` service
+`devices: ["/dev/net/tun"]` + `cap_add: [NET_ADMIN, NET_RAW]`.
+
+## Teardown
+
+```sh
+ssh <admin>@kappa.local 'sudo /usr/local/sbin/mage-hands-router-relay-down'   # or relay.sh router1 down
+```
+Stops the relay **and** the sidecar, so serve and the `router1` node disappear with it.
+
+## How this differs from synology-hands
+
+| | synology-hands | router-hands |
+|--|----------------|--------------|
+| Runner | `NsenterRunner` (own host) | `SSHRunner` (remote router) |
+| Container | `privileged` + `pid:host` + `/:/host` | unprivileged, no host mount |
+| Ingress | host's `tailscale serve` CLI on `:443` | Tailscale **sidecar** node + declarative `serve.json` |
+| `read_file` | `fs_reader("/host")` (real fs guard) | `runner_reader` over SSH (lexical policy only) |
+| `run()` | enabled | **opt-in** (`ROUTER_ENABLE_RUN`) |
+| Port | `8787` | `8788` (loopback in the shared netns) |
+
+See [ARCHITECTURE.md](../ARCHITECTURE.md) for the second deployment shape and
+[docs/maintenance.md](../docs/maintenance.md) for sidecar/auth-key/SSH-key rotation.

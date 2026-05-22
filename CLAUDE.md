@@ -7,8 +7,10 @@ Guidance for Claude Code (and other agents) working in this repo.
 remotely. Two layers:
 - **Core** — the installable `mage_hands_core` package (`common/`): token auth, forensic
   audit, the gated `run()` tool, and the read path policy. All security logic lives here.
-- **Appliances** — thin servers (`synology-hands/`, future `router-hands/`) that pick an
-  executor and register target-specific tools.
+- **Appliances** — thin servers that pick an executor and register target-specific tools:
+  `synology-hands/` (privileged container + `nsenter` on the NAS) and `router-hands/` (an
+  `SSHRunner` relay on the NAS that reaches an ASUS Asuswrt-Merlin router over SSH, fronted by a
+  Tailscale sidecar so it gets its own node).
 
 ## Start here
 1. **[README.md](README.md)** — overview, how it works, repo layout, tool tiers.
@@ -22,7 +24,9 @@ remotely. Two layers:
 ## Using a deployed relay (the common case)
 The relay is **off by default**. To use it from a fresh Claude session:
 1. Bring it up with `~/.config/mage-hands/relay.sh <appliance> up` (scoped passwordless sudo on
-   the NAS; starting it is approval-gated). Appliances: `kappa`, `alpha`. See getting-started.md.
+   the NAS; starting it is approval-gated). Appliances: `kappa`, `alpha` (NAS); `router1` (ASUS
+   Merlin router over SSH — its relay runs on `kappa`; **implemented, not yet deployed** — deploy
+   per [router-hands/README.md](router-hands/README.md)). See getting-started.md.
 2. Start a **new** Claude Code session — remote MCP servers load at session start, so its
    tools appear as `mcp__<name>__*` (e.g. `mcp__kappa__system_info`).
 3. Prefer Tier-A inspection tools (they auto-run). Mutation (`restart_*`), raw exec (`run`),
@@ -48,6 +52,9 @@ idle; bring it back up.
   can't set `privileged`.
 
 ## Environment
-Authored on macOS (Apple Silicon, 64 GB), `uv`-first Python tooling. The relay image is
-`python:3.12-slim` + `util-linux` (for `nsenter`) + `fastmcp`. Targets are x86 Synology
-(DSM 7.2+) for now.
+Authored on macOS (Apple Silicon, 64 GB), `uv`-first Python tooling. The synology-hands relay
+image is `python:3.12-slim` + `util-linux` (for `nsenter`) + `fastmcp`; router-hands swaps
+`util-linux` for `openssh-client` (it SSHes out) and adds a `tailscale/tailscale` sidecar for its
+own tailnet node. Targets: x86 Synology (DSM 7.2+) and an ASUS Asuswrt-Merlin router (reached over
+SSH; no Docker/nsenter on it). Core unit tests live in `common/tests/` — run from `common/` with
+`uv run --with pytest --with fastmcp pytest tests -q`.

@@ -9,7 +9,7 @@ The project is two layers:
 | Layer | What it is | Lives in |
 |-------|------------|----------|
 | **Core** (`mage_hands_core`) | Reusable, pip-installable relay framework: token auth, forensic audit, the gated `run()` tool, and the read path policy. The security machinery lives here once, so every appliance inherits it. | `common/` |
-| **Appliances** | Thin servers that pick an executor (how to run on the target) and register target-specific tools. `synology-hands` administers a Synology NAS; `router-hands` is a planned stub. | `synology-hands/`, `router-hands/` |
+| **Appliances** | Thin servers that pick an executor (how to run on the target) and register target-specific tools. `synology-hands` administers a Synology NAS (privileged container + `nsenter`); `router-hands` administers an ASUS Asuswrt-Merlin router over SSH (`SSHRunner` + a Tailscale sidecar). | `synology-hands/`, `router-hands/` |
 
 > **Heads-up:** the relay is **OFF by default**. You bring it up for a session and it
 > auto-stops when idle. While up it is effectively root on the target — safety comes from
@@ -80,7 +80,10 @@ mage-hands/
 │   ├── Dockerfile  compose.yaml  .env.example
 │   ├── scripts/                  # relay-up/down · idle-watchdog · tailscale-update · install-sudo · smoke-test.py
 │   └── README.md
-├── router-hands/                 # appliance #2 (planned) — reuse the core, swap the Runner
+├── router-hands/                 # appliance #2: ASUS Merlin router (SSHRunner + Tailscale sidecar)
+│   ├── server.py                 # Tier A/B router tools; SSHRunner; read_file + opt-in run()
+│   ├── Dockerfile  compose.yaml  serve.json  .env.example
+│   ├── scripts/                  # relay-up/down · idle-watchdog · install-sudo · smoke-test.py
 │   └── README.md
 ├── docs/
 │   ├── getting-started.md        # use a deployed relay from a fresh Claude session

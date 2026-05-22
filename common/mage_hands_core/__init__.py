@@ -16,8 +16,8 @@ on raw exec, and the read path policy) live here so every appliance inherits the
 
 from .config import Config
 from .server import build_server, run_server
-from .exec import ShellRunner, NsenterRunner, register_run_tool, DEFAULT_DENY
-from .policy import PathPolicy, fs_reader, register_read_file
+from .exec import ShellRunner, NsenterRunner, SSHRunner, register_run_tool, DEFAULT_DENY
+from .policy import PathPolicy, fs_reader, runner_reader, register_read_file
 from .audit import AuditMiddleware, setup_audit, touch_activity, truncate
 
 __all__ = [
@@ -26,10 +26,12 @@ __all__ = [
     "run_server",
     "ShellRunner",
     "NsenterRunner",
+    "SSHRunner",
     "register_run_tool",
     "DEFAULT_DENY",
     "PathPolicy",
     "fs_reader",
+    "runner_reader",
     "register_read_file",
     "AuditMiddleware",
     "setup_audit",

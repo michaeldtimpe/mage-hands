@@ -58,12 +58,14 @@ the Mac; the relay only routes structured tool calls to the host and returns JSO
 | `config.py` | `Config.from_env()` — `RELAY_TOKEN`, `NODE_ID`, `ALLOWED_USERS`, `AUDIT_DIR`, bind host/port/path, graceful timeout. |
 | `auth.py` | `build_token_verifier()` — probes fastmcp for `StaticTokenVerifier` (import path varies by build) and returns a single-token verifier. |
 | `audit.py` | `setup_audit()` (rotating JSONL), `touch_activity()` (atomic), `AuditMiddleware` (identity allowlist + forensic log), `truncate()`. |
-| `exec.py` | `Runner` protocol, `ShellRunner` / `NsenterRunner`, `DEFAULT_DENY`, `register_run_tool()` (the gated Tier-C `run()`). |
-| `policy.py` | `PathPolicy` (allow/deny + lexical normalize), `fs_reader()` (join-then-resolve traversal guard), `register_read_file()`. |
+| `exec.py` | `Runner` protocol, `ShellRunner` / `NsenterRunner` / `SSHRunner`, `DEFAULT_DENY`, `register_run_tool()` (the gated Tier-C `run()`). |
+| `policy.py` | `PathPolicy` (allow/deny + lexical normalize), `fs_reader()` (join-then-resolve traversal guard), `runner_reader()` (read via a Runner — for SSH/non-mounted targets), `register_read_file()`. |
 | `server.py` | `build_server()` (FastMCP + auth + lifespan flush + audit middleware), `run_server()`. |
 
 An appliance (`synology-hands/server.py`) is then just: build the server, choose a Runner,
-register tools, register `read_file` + `run()`, and `run_server()`.
+register tools, register `read_file` + `run()`, and `run_server()`. The Runner is the transport
+seam: `NsenterRunner` (drive the host from a privileged container) and `SSHRunner` (drive a remote
+target over SSH — the router pattern) are interchangeable to the gating/tool code above them.
 
 ## Security model
 
@@ -163,3 +165,26 @@ the last call (atomic write) and drives the idle watchdog.
 - **Ingress:** `tailscale serve --bg --https=443 http://localhost:8787`.
 - **Lifecycle:** `scripts/relay-up.sh` (build → wait healthy → serve), `relay-down.sh` (serve
   off → compose down), `idle-watchdog.sh` (DSM Task Scheduler, stops after `IDLE_SECONDS`).
+
+## Deployment shape (router-hands) — the SSHRunner variant
+
+A second supported topology for targets that can't host the relay (ASUS Asuswrt-Merlin: BusyBox,
+no Docker, no nsenter). The relay runs in a container on a NAS (`kappa`) and reaches the router
+over SSH; ingress is a **Tailscale sidecar** giving it its own node `router1`.
+
+- **Two services, one netns:** a `tailscale/tailscale` sidecar (`hostname: router1`,
+  `TS_USERSPACE=true`, declarative `TS_SERVE_CONFIG=serve.json` mapping `:443 → 127.0.0.1:8788`)
+  plus the relay with `network_mode: "service:tailscale"`. The relay binds `127.0.0.1:8788` inside
+  that shared namespace (so `BIND_HOST=127.0.0.1`, `PORT=8788`); SSH egress to the router's LAN IP
+  leaves via the sidecar's Docker bridge.
+- **Unprivileged:** no `privileged`, no `pid: host`, no `/:/host` — the relay only SSHes out. The
+  SSH private key is bind-mounted read-only (`./secrets/…:/secrets/router_key`), never baked in;
+  the router host key is pinned (`known_hosts`).
+- **Execution:** `SSHRunner` renders each tool's argv with `shlex.join` into one remote command,
+  prefixed with an explicit `PATH` (dropbear strips the environment). `read_file` uses
+  `runner_reader` (read over SSH); `run()` is **opt-in** (`ROUTER_ENABLE_RUN`) with a router-tuned
+  denylist on top of `DEFAULT_DENY`.
+- **Ingress:** declarative via the sidecar — there is **no** `tailscale serve` CLI call.
+- **Lifecycle:** `scripts/relay-up.sh` (compose up both → wait relay healthy → SSH-egress check),
+  `relay-down.sh` (compose down — sidecar/node go too), `idle-watchdog.sh`, `install-sudo.sh`
+  (distinct `mage-hands-router-relay-{up,down}`). See [router-hands/README.md](router-hands/README.md).

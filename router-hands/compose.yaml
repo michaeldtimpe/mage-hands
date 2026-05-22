@@ -1,0 +1,63 @@
+# router-hands: an UNprivileged relay that SSHes to the ASUS Asuswrt-Merlin router, fronted by its
+# OWN tailnet node via a Tailscale SIDECAR. (kappa's :443 is already used by synology-hands, so
+# this can't be path-based — the sidecar gives router-hands its own MagicDNS name `router1`.)
+#
+# Two services share ONE network namespace (network_mode: service:tailscale):
+#   - tailscale : joins the tailnet as `router1`, terminates HTTPS:443, proxies -> 127.0.0.1:8788
+#   - relay     : FastMCP on 127.0.0.1:8788; SSHes OUT to the router. No privileged / pid:host /
+#                 host-root mount — it never touches kappa beyond Docker.
+#
+# Deploy on kappa via SSH:
+#   sudo docker compose -f <deploy>/router-hands/compose.yaml up -d --build
+#
+# Pre-create on kappa first (gitignored, not in the repo): ./logs (root-owned 700), ./ts-state,
+# ./secrets/{router_id_ed25519 (chmod 600), known_hosts}. See README.md.
+services:
+  tailscale:
+    # Pinned (not :latest): TS_SERVE_CONFIG env-var expansion is version-dependent, and this should
+    # track the tailnet's Tailscale version. Bump deliberately (docs/maintenance.md).
+    image: tailscale/tailscale:v1.98.2
+    container_name: router-hands-ts
+    hostname: router1                       # -> router1.<tailnet>.ts.net
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}            # from .env; reusable + ephemeral + tag:relay
+      - TS_STATE_DIR=/var/lib/tailscale     # persist node identity across recreates
+      - TS_SERVE_CONFIG=/config/serve.json  # declarative serve: 443 -> 127.0.0.1:8788
+      - TS_USERSPACE=true                   # no /dev/net/tun, no privileged (unprivileged stack)
+      - TS_EXTRA_ARGS=--ssh=false           # do NOT run a Tailscale SSH server on this node
+    volumes:
+      - ./ts-state:/var/lib/tailscale       # node state (gitignored; pre-create on kappa)
+      - ./serve.json:/config/serve.json:ro  # serve config
+    restart: "no"                           # ephemeral, like the relay
+    healthcheck:
+      # Node is up once `tailscale status` answers (it has joined the tailnet).
+      test: ["CMD-SHELL", "tailscale status --peers=false >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+
+  relay:
+    build:
+      context: ..                           # repo root, so the image can include ../common
+      dockerfile: router-hands/Dockerfile
+    container_name: router-hands
+    network_mode: "service:tailscale"       # share the sidecar's netns (no `ports:` allowed here)
+    depends_on:
+      tailscale:
+        condition: service_healthy          # gates STARTUP only — see lessons.md for the runtime gap
+    env_file: .env                          # RELAY_TOKEN, NODE_ID, ROUTER_*, BIND_HOST=127.0.0.1, PORT=8788
+    restart: "no"                           # ephemeral: never auto-restarts; you bring it up
+    stop_grace_period: 35s                  # >= core graceful_timeout (30s) for clean shutdown
+    volumes:
+      - ./logs:/var/log/mcp                                  # persistent audit log + last_activity
+      - ./secrets/router_id_ed25519:/secrets/router_key:ro   # SSH private key (chmod 600 on host)
+      - ./secrets/known_hosts:/secrets/known_hosts:ro        # pinned router host key
+    healthcheck:
+      # TCP listen check on the loopback the relay binds INSIDE the shared netns (a /mcp GET would
+      # 401 once auth is on, which isn't "unhealthy").
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8788), 3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

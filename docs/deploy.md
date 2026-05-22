@@ -227,3 +227,29 @@ appliance so a compromise doesn't cascade.
 `claude mcp add` stores the token **literally** in `~/.claude.json`. Exclude that file from
 Time Machine / iCloud, or switch the MCP entry to a `headersHelper` script that reads the token
 file at call time.
+
+## Variant: SSHRunner relay with a Tailscale sidecar (router-hands)
+
+The runbook above assumes the relay runs *on* the target. For a target that can't host the relay
+(an ASUS Asuswrt-Merlin router: no Docker, no nsenter), the relay runs in a container on a NAS
+(`kappa`) and reaches the router **over SSH**. The full step-by-step lives in
+[../router-hands/README.md](../router-hands/README.md); the deltas from the NAS runbook are:
+
+- **No privileged/pid:host/`/:/host`.** The relay only SSHes out. The SSH **private key** is
+  bind-mounted read-only (`router-hands/secrets/router_key`, chmod 600, gitignored) — never baked
+  into the image; the router host key is **pinned** (`secrets/known_hosts` via `ssh-keyscan`, verified
+  out-of-band). The router is otherwise stock: enable SSH + add the public key.
+- **Ingress is a Tailscale sidecar, not the host's serve CLI.** A `tailscale/tailscale` container
+  (`hostname: router1`, `TS_USERSPACE=true`, `TS_SERVE_CONFIG=serve.json`) gives router-hands its own
+  node `router1.<tailnet>.ts.net`; the relay uses `network_mode: "service:tailscale"`. So you set
+  `BIND_HOST=127.0.0.1` + `PORT=8788` in `.env`, and there is **no** `tailscale serve` command.
+  Pre-create `router-hands/{logs,ts-state,secrets}` on kappa (logs root-owned `700`).
+- **Auth key.** Create a reusable + ephemeral + tagged `TS_AUTHKEY` for `router1` (Settings → Keys).
+- **Smoke test runs inside the container** (`docker exec … router-hands python - < scripts/smoke-test.py`),
+  because `8788` lives on the sidecar's netns loopback, not kappa's host loopback.
+- **Bring-up verifies SSH egress.** `relay-up.sh` prints `SSH egress to router: PASS/FAIL`; if it
+  FAILs, the userspace-netns LAN-egress fallback (kernel-TUN) is in router-hands/README.md.
+- **`run()` is opt-in** (`ROUTER_ENABLE_RUN=true`); leave it off for inspection-only use.
+- **Scoped sudo uses distinct names** (`mage-hands-router-relay-{up,down}` + `/etc/sudoers.d/mage-hands-router`)
+  so it coexists with synology-hands on the same box; the Mac `relay.sh router1` case SSHes to
+  **kappa** (the container host), not the router.

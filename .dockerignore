@@ -4,6 +4,9 @@
 **/.env
 **/*.token
 **/logs/
+**/secrets/
+**/ts-state/
+**/serve.json
 **/__pycache__/
 **/*.pyc
 .venv

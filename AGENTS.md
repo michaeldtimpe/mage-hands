@@ -41,28 +41,35 @@ def stop_container(name: str) -> dict:
 ```
 Keep raw arbitrary execution in the single gated `run()` — don't add ad-hoc shell-exec tools.
 
-### Adding a new appliance (e.g. router-hands)
+### Adding a new appliance
 The core carries all security logic; an appliance supplies a **Runner** + **tools**:
 ```python
 cfg  = Config.from_env()
 mcp  = build_server("router-hands", INSTRUCTIONS, cfg)
-host = ShellRunner()      # or NsenterRunner, or a new SSHRunner added to common/exec.py
-# @mcp.tool() ... router tools ...
-register_read_file(mcp, PathPolicy(allow=[...], deny=[...]), fs_reader("/host"))
-register_run_tool(mcp, host)
+host = NsenterRunner(cap=cfg.output_cap)         # drive its OWN host (NAS), OR:
+# host = SSHRunner.from_env(cap=cfg.output_cap)  # drive a REMOTE target over SSH (router)
+# @mcp.tool() ... target tools ...
+register_read_file(mcp, PathPolicy(allow=[...], deny=[...]),
+                   fs_reader("/host"))           # OR runner_reader(host) for SSH/non-mounted targets
+register_run_tool(mcp, host, deny_patterns=DEFAULT_DENY + cfg.run_deny_extra)
 run_server(mcp, cfg)
 ```
-If the relay reaches the target over SSH instead of running on it, add an `SSHRunner` to
-`common/exec.py` (implements `Runner.run`). For non-filesystem reads, `register_read_file`
-already accepts an arbitrary `reader` callable. See `router-hands/README.md`.
+Two transports exist (both implement `Runner.run`): `NsenterRunner` (a privileged container drives
+its own host) and `SSHRunner` (the relay runs elsewhere and reaches the target over SSH, fronted by
+a Tailscale sidecar so it gets its own MagicDNS node). `register_read_file` takes any `reader`
+callable — use `runner_reader(host)` when there's no mounted filesystem. `router-hands` is the
+worked SSH example; see `router-hands/README.md`.
 
 ### Tuning the catastrophic-command denylist
 `DEFAULT_DENY` in `common/exec.py` is a regex backstop (it is *not* a complete safety
 guarantee). It blocks whole-pool/root wipes — including trailing-slash and glob forms
 (`rm -rf /`, `/*`, `/volume1`, `/volume1/`, `/volume1/*`), `mkfs`, `dd of=/dev/*`, destructive
 `mdadm`, recursive chmod/chown on `/`, partition tools, and `synostorage --delete`. Targeted
-deletes *under* a volume (e.g. `/volume1/docker/app/cache`) are intentionally allowed. Pass
-`deny_patterns=` to `register_run_tool()` to override.
+deletes *under* a volume (e.g. `/volume1/docker/app/cache`) are intentionally allowed. It also
+refuses availability commands at command position (`reboot`, `shutdown`, `poweroff`, `halt`,
+`init 0`, `kill -1`). Operators **append** patterns via `RUN_DENY_EXTRA` (never replace); an
+appliance composes its own list via `deny_patterns=` (router-hands passes
+`DEFAULT_DENY + ROUTER_DENY_EXTRA + cfg.run_deny_extra`, adding firmware/nvram-erase/mtd cases).
 
 ### Tuning the read policy
 Set `READ_ALLOW` / `READ_DENY` in the appliance `server.py`. The deny list should cover secret
@@ -97,9 +104,14 @@ script). Use a **separate token per appliance**.
 |------|------|---------------|---------|-------|
 | `kappa` (synology-hands) | `kappa.local` | Synology 718+ (apollolake), DSM 7.2.1 x86_64 | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login; scoped passwordless sudo installed; Mac start/stop via `~/.config/mage-hands/relay.sh kappa up\|down` + approval rules in `~/.claude/settings.json` |
 | `alpha` (synology-hands) | `alpha.local` | Synology 1517+ (avoton), DSM 7.3.1 x86_64 | `https://alpha.<tailnet>.ts.net/mcp` | same setup mirrored from kappa; token at `~/.config/nas-relay/alpha.token`; `mcp__alpha__*` permission rules added; start/stop `~/.config/mage-hands/relay.sh alpha up\|down` |
+| `router1` (router-hands) | runs on `kappa.local` | ASUS Asuswrt-Merlin router, reached over SSH | `https://router1.<tailnet>.ts.net/mcp` | **implemented; deploy per [router-hands/README.md](router-hands/README.md)**. SSHRunner relay container on kappa + Tailscale **sidecar** node; unprivileged; SSH key in `router-hands/secrets/`; `BIND_HOST=127.0.0.1`/`PORT=8788`; `run()` opt-in (`ROUTER_ENABLE_RUN`); lifecycle `mage-hands-router-relay-{up,down}`; `relay.sh router1 up\|down` (SSHes to kappa, not the router) |
 
-**Status (2026-05-22):** both boxes on Tailscale **1.98.2**; per-box DSM Task Scheduler jobs active —
-idle-watchdog (every 5 min) and tailscale-update (weekly); relays **off by default**.
+**Status (2026-05-22):** both NAS boxes on Tailscale **1.98.2**; per-box DSM Task Scheduler jobs
+active — idle-watchdog (every 5 min) and tailscale-update (weekly); relays **off by default**.
+`router-hands` (`router1`) is **code-complete and tested but not yet deployed** — its relay runs on
+`kappa` and reaches the ASUS Merlin router over SSH; deploy per
+[router-hands/README.md](router-hands/README.md) (provision the SSH key + `TS_AUTHKEY` on kappa,
+then confirm the bring-up's `SSH egress: PASS`).
 **To resume in a fresh session:** start a relay with `~/.config/mage-hands/relay.sh <kappa|alpha> up`,
 open a new Claude session (tools auto-load as `mcp__<name>__*`; read-only auto-runs, mutation/exec
 prompt), do the work, then `~/.config/mage-hands/relay.sh <name> down`. See
@@ -143,3 +155,5 @@ prompt), do the work, then `~/.config/mage-hands/relay.sh <name> down`. See
 Relay image: `python:3.12-slim` + `util-linux` (nsenter) + `fastmcp` (>=3,<4, pulls `mcp`,
 `pydantic`, `uvicorn`, `starlette`, `authlib`). Appliance host needs Docker/Container Manager
 and Tailscale. The Mac needs Claude Code; the smoke test needs `fastmcp` (run via `uv`).
+**router-hands** swaps `util-linux` for `openssh-client` (it SSHes out, doesn't nsenter) and adds
+a `tailscale/tailscale` sidecar container so it gets its own tailnet node.
