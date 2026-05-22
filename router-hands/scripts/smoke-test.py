@@ -23,12 +23,22 @@ URL = os.environ.get("RELAY_URL", "http://127.0.0.1:8788/mcp")
 TOKEN = os.environ.get("RELAY_TOKEN", "")
 
 
-async def list_tools(token: str, label: str) -> int:
+# Tools the relay must expose after the synology-parity build. run() is on by default now, so it
+# should also be present (unless ROUTER_ENABLE_RUN=false was set for this box).
+EXPECTED_TOOLS = {
+    "system_info", "diagnostics", "clients", "dhcp_leases", "wan_status", "interfaces",
+    "firewall_show", "disk_usage", "performance", "pending_updates", "internet_exposure",
+    "read_file", "restart_service", "reboot_router",
+}
+
+
+async def list_tools(token: str, label: str) -> list[str]:
     client = Client(URL, auth=token)  # fastmcp treats a str auth as a Bearer token
     async with client:
         tools = await client.list_tools()
-        print(f"[{label}] connected — {len(tools)} tools: {[t.name for t in tools]}")
-        return len(tools)
+        names = [t.name for t in tools]
+        print(f"[{label}] connected — {len(names)} tools: {names}")
+        return names
 
 
 async def main() -> None:
@@ -36,11 +46,20 @@ async def main() -> None:
         print("set RELAY_TOKEN", file=sys.stderr)
         sys.exit(2)
 
-    # 1) correct token must succeed
-    n = await list_tools(TOKEN, "valid-token")
-    if n == 0:
+    # 1) correct token must succeed AND expose the expected tool surface
+    names = await list_tools(TOKEN, "valid-token")
+    if not names:
         print("FAIL: no tools returned", file=sys.stderr)
         sys.exit(1)
+    missing = EXPECTED_TOOLS - set(names)
+    if missing:
+        print(f"FAIL: missing expected tools: {sorted(missing)}", file=sys.stderr)
+        sys.exit(1)
+    if "run" not in names:
+        print("WARN: run() absent — expected on by default (ok only if ROUTER_ENABLE_RUN=false)",
+              file=sys.stderr)
+    print(f"OK: {len(EXPECTED_TOOLS)} expected tools present; run() "
+          f"{'present' if 'run' in names else 'absent'}")
 
     # 2) wrong token must be rejected
     try:

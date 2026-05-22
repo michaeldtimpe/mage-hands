@@ -30,11 +30,19 @@ accordingly:
   filesystem confinement.** `PathPolicy` is lexical and can't resolve *remote* symlinks, so the
   explicit `READ_DENY` list (dropbear keys, VPN/cert material, `/etc/shadow`, world-writable
   `/var/tmp`·`/tmp/var`) is the real boundary. Keep ALLOW roots conservative.
-- **`run()` is OFF by default** (`ROUTER_ENABLE_RUN`). Arbitrary root on a soft-brickable router is
-  a different blast radius than NAS inspection. When enabled it still keeps the dry-run/exec_token
-  gate + a router-tuned denylist (blocks firmware flash, `nvram erase`, factory reset, mtd writes,
-  and inherits the core backstops incl. reboot/shutdown). The denylist is a *guardrail, not a
-  sandbox* — real safety is the gate + audit + ephemerality + human approval.
+- **`run()` is ON by default** (parity with `synology-hands`; set `ROUTER_ENABLE_RUN=false` to turn
+  it off). This is the appliance's most security-sensitive surface: with run() registered, **token
+  possession effectively grants constrained root shell on the router host by default** — a real blast
+  radius on a soft-brickable target. It stays behind the dry-run/exec_token gate + a router-tuned
+  denylist (blocks firmware flash, `nvram erase`, factory reset, mtd writes, and the core/router
+  reboot backstops — see below). `ROUTER_ENABLE_RUN=false` is the escape hatch for environments where
+  that posture is unacceptable. The denylist is a *lexical guardrail, not a sandbox* — real safety is
+  the gate + audit + ephemerality + human approval.
+- **`reboot_router` is the only directly-intended reboot path.** Because run() is now on by default,
+  the router denylist explicitly closes the indirect Merlin reboot triggers that slip the core
+  command-position anchor (`service reboot`, `init 6`/`telinit 6`, `busybox reboot`, `rc reboot`,
+  `killall rc`). String-wrapped forms (`sh -c reboot`, `echo reboot | sh`) remain evadable — that's
+  the lexical-backstop limitation, not a containment guarantee.
 
 ## Tools
 
@@ -47,9 +55,14 @@ accordingly:
 | `wan_status` | A | WAN0/WAN1 state/IP/gateway/proto/DNS (dual-WAN aware) |
 | `interfaces` | A | `ifconfig` / `ip -s addr` / `/proc/net/dev` counters |
 | `firewall_show` | A | iptables filter + NAT tables (read-only) |
+| `disk_usage` | A | `df -h` (jffs/tmpfs/USB) + jffs inode pressure + mount table |
+| `performance` | A | cpu/load/mem+swap, instantaneous iowait, top procs, thermal (CPU + per-radio WiFi), conntrack pressure |
+| `pending_updates` | A | Merlin firmware update state (`nvram webs_state_*`) + current fw + AiProtection sigs; `check=true` triggers a live ASUS check |
+| `internet_exposure` | A | full WAN attack-surface: remote admin, SSH/telnet, port forwards, UPnP (+active), DMZ, DDNS, AiCloud, VPN servers, IPv6 fw, FTP/Samba, port-trigger, live listeners |
 | `read_file` | A | policied file read over SSH (allow/deny roots) |
 | `restart_service` | B (mutation) | Merlin `service restart_<name>` for an allowlisted set |
-| `run` | C (gated, **opt-in**) | arbitrary root over SSH — only present if `ROUTER_ENABLE_RUN=true` |
+| `reboot_router` | B (mutation) | reboot the router — approval- **and** `confirm=true`-gated; SSH drop is expected |
+| `run` | C (gated, **on by default**) | arbitrary root over SSH — present unless `ROUTER_ENABLE_RUN=false` |
 
 ## Prerequisites
 
@@ -126,7 +139,8 @@ accordingly:
 10. **Mac wiring:** add a `router1` case to `~/.config/mage-hands/relay.sh` whose host is
     **kappa** (the container host, not the router) calling `mage-hands-router-relay-{up,down}`, and
     add `mcp__router1__*` rules to `~/.claude/settings.json` (read-only tools in `allow`;
-    `restart_service`/`run` + the `relay.sh` helper in `ask`). See [docs/deploy.md](../docs/deploy.md).
+    `restart_service`/`reboot_router`/`run` + the `relay.sh` helper in `ask`). See
+    [docs/deploy.md](../docs/deploy.md).
 
 ## SSH egress note (the one thing to verify)
 
@@ -152,7 +166,7 @@ Stops the relay **and** the sidecar, so serve and the `router1` node disappear w
 | Container | `privileged` + `pid:host` + `/:/host` | unprivileged, no host mount |
 | Ingress | host's `tailscale serve` CLI on `:443` | Tailscale **sidecar** node + declarative `serve.json` |
 | `read_file` | `fs_reader("/host")` (real fs guard) | `runner_reader` over SSH (lexical policy only) |
-| `run()` | enabled | **opt-in** (`ROUTER_ENABLE_RUN`) |
+| `run()` | enabled | **on by default** (`ROUTER_ENABLE_RUN=false` to disable) |
 | Port | `8787` | `8788` (loopback in the shared netns) |
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the second deployment shape and
