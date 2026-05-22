@@ -78,6 +78,9 @@ audited):
 | check SMART health of every disk | `storage_health` | A |
 | list containers / tail a container's logs | `list_containers`, `container_logs` | A |
 | check a DSM service's status | `service_status` | A |
+| check internet exposure (QuickConnect / DDNS / UPnP / port-forward / reverse-proxy) | `internet_exposure` | A |
+| see resource pressure (load, memory, swap, iowait, top processes, temps) | `performance` | A |
+| check for DSM / package / vendor (Tailscale) updates | `pending_updates` | A |
 | read a config/log file (allowlisted paths) | `read_file` | A |
 | restart a container or DSM service | `restart_container`, `restart_service` | B (mutation) |
 | run an arbitrary root command | `run` | C (gated) |
@@ -108,7 +111,7 @@ frictionless but anything with side effects pauses for you:
 
 | Action | Behavior |
 |--------|----------|
-| Read-only tools (`system_info`, `disk_usage`, `storage_health`, `list_containers`, `container_logs`, `service_status`, `read_file`) | **auto-run**, no prompt |
+| Read-only tools (`system_info`, `disk_usage`, `storage_health`, `list_containers`, `container_logs`, `service_status`, `internet_exposure`, `performance`, `pending_updates`, `read_file`) | **auto-run**, no prompt |
 | Mutation tools (`restart_container`, `restart_service`) | **approval prompt** each call |
 | Raw exec (`run`) | **approval prompt** each call |
 | Starting/stopping the relay (`relay.sh`) | **approval prompt** |

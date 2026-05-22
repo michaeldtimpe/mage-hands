@@ -40,6 +40,46 @@ mcp__<name>__run  command="nohup sh -c 'sleep 5; PATH=/usr/syno/bin:/usr/syno/sb
 ```
 (dry-run first, then replay the `exec_token`; read `/tmp/ts-update.log` over LAN afterward).
 
+## Checking for manually-updatable packages (Package Center lags)
+
+Package Center silently lags upstream for some packages (it left Tailscale ~2 years behind). The
+`pending_updates` Tier-A tool buckets the answer so you don't flatten "updates available":
+
+- **DSM OS** — `synoupgrade --check` + current `productversion`. The check returns a status *token*
+  (e.g. `UPGRADE_CHECKNEWDSM`), so confirm in Control Panel → Update & Restore. (Fleet note: kappa
+  is **7.2.1** vs alpha **7.3.1** — a major upgrade is outstanding on kappa.)
+- **Package Center** — `synopkg checkupdateall` (`[]` = nothing pending) + the installed list.
+- **Vendor-managed** — Tailscale via `tailscale version` + `tailscale update --dry-run` (update with
+  `tailscale update --yes`, **not** Package Center).
+- **Container images** — compare with `list_containers` + `docker images`.
+
+Ask Claude: *"Run `pending_updates` on kappa and tell me what I can update."*
+
+## Checking external access / internet exposure
+
+`internet_exposure` reports QuickConnect / DDNS / UPnP / port-forwarding / reverse-proxy, each with a
+`confidence` (`authoritative` / `heuristic` / `unknown`) — so an unread probe is never mistaken for
+"off". QuickConnect's truth lives in `/usr/syno/etc/synorelayd/synorelayd.conf` + the running
+`synorelayd` daemon (**not** `/etc/synoinfo.conf`, the 2026-05 audit's mistake). To toggle it:
+
+```sh
+synowebapi --exec api=SYNO.Core.QuickConnect method=get                          # enabled? alias? services?
+synowebapi --exec api=SYNO.Core.QuickConnect method=set version=1 enabled=false  # disable (synorelayd stops; server_id clears)
+```
+
+Auto-block lives in the `SYNO.Core.Security.AutoBlock` webapi (not a conf file). SSH password-auth
+is in `/etc/ssh/sshd_config` (`PasswordAuthentication no`, then `synosystemctl reload-or-restart
+sshd`) — note DSM may rewrite this file on a DSM update, so re-check after upgrades.
+
+## Re-running the audit
+
+The 2026-05 audit is **not** a one-shot artifact — re-run it against the *new* tools and correct
+sources. Prefer `internet_exposure` / `performance` / `pending_updates` over ad-hoc `run()`, and
+keep the detection lesson in mind (lessons.md, *"An empty probe is not a negative"*): a probe that
+returns nothing means "off" **or** "wrong oracle". DSM 7 uses **`synosystemctl`** (not
+`synoservicectl`) and keeps `syno*` tools in `/usr/syno/{bin,sbin}` — the relay's `NsenterRunner`
+now puts those on `PATH` automatically.
+
 ## High host CPU? Suspect `tailscaled`, not the relay
 
 The relay is a near-idle uvicorn process and is usually stopped by the watchdog anyway, so high

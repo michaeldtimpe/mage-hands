@@ -208,3 +208,36 @@ only tailnet traffic uses the netstack — LAN egress to the router rides the Do
 **Lesson:** when a second appliance lands on a host that already owns `:443`, give it its own tailnet
 identity with a sidecar instead of contorting the existing node — but remember that "share the
 sidecar's namespace" changes where loopback lives and how non-tailnet egress is routed.
+
+## "Disabled," or "we asked the wrong oracle"? An empty probe is not a negative
+
+A resilience audit cleared QuickConnect on both NAS as "not configured." It was **enabled the whole
+time** — relaying DSM and **SSH** to the public internet via `*.quickconnect.to`, while SSH still
+allowed password auth. The audit had probed `/etc/synoinfo.conf` (which has no `quickconnect` key)
+and `synogetkeyvalue` against `/usr/syno/etc/synoinfo*.conf` files that **don't exist on DSM 7** —
+and `synogetkeyvalue` on a missing file returns **rc 0 + empty**. Empty was read as "off." The
+authoritative source turned out to be `/usr/syno/etc/synorelayd/synorelayd.conf`
+(`"quickconnect":{"enabled":true}` + the relayed service list), corroborated by the running
+`synorelayd` daemon and `synowebapi … SYNO.Core.QuickConnect get`. The same wrong-file class also hid
+the auto-block state (the real source is the `SYNO.Core.Security.AutoBlock` webapi). The structural
+fix is the `internet_exposure` tool: every channel returns `{enabled, source, confidence}` where
+confidence is `authoritative | heuristic | unknown`, **`unknown` is never collapsed into
+`disabled`**, and a config value is confirmed against an independent runtime signal (is the daemon
+actually running?) before any security-relevant negative.
+
+**Lesson:** a probe that returns nothing has two causes — the feature is off, or you queried the
+wrong oracle — and a security tool must never conflate them. Carry provenance and a confidence level,
+make "unknown" a first-class state distinct from "disabled," and corroborate config with a runtime
+signal. Absence of evidence is not evidence of absence.
+
+## `nsenter` gives you the host's binaries, but DSM moved them (synoservicectl → synosystemctl)
+
+The PATH fix made `syno*` tools resolve — and immediately surfaced that `service_status` /
+`restart_service` had been calling **`synoservicectl`, which doesn't exist on DSM 7** (it returns
+127). DSM 7 replaced it with `synosystemctl` (`get-active-status` / `reload-or-restart`). The bug
+was invisible before only because the *old* relay had no `/usr/syno` PATH, so the same tools failed
+with the same 127 for a *different* reason — two faults masking each other.
+
+**Lesson:** when you fix the reason a class of commands silently fails, re-test everything that
+depended on them — a PATH fix can unmask a stale binary name. Appliance OSes rename their own
+tooling across majors; pin the verb to the OS version, not to muscle memory.

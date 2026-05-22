@@ -12,9 +12,12 @@ The project is two layers:
 | **Appliances** | Thin servers that pick an executor (how to run on the target) and register target-specific tools. `synology-hands` administers a Synology NAS (privileged container + `nsenter`); `router-hands` administers an ASUS Asuswrt-Merlin router over SSH (`SSHRunner` + a Tailscale sidecar). | `synology-hands/`, `router-hands/` |
 
 > **Heads-up:** the relay is **OFF by default**. You bring it up for a session and it
-> auto-stops when idle. While up it is effectively root on the target — safety comes from
-> network isolation (Tailscale, no WAN), a bearer token, ephemerality, and a forensic audit
-> log, plus dry-run/replay gating on raw execution. It is **not** sandboxed; that's deliberate.
+> auto-stops when idle. While up it is effectively root on the target — safety comes from the
+> *relay's* network isolation (loopback bind + tailnet-only `tailscale serve`, never WAN/funnel),
+> a bearer token, ephemerality, and a forensic audit log, plus dry-run/replay gating on raw
+> execution. It is **not** sandboxed; that's deliberate. (The *host's* own WAN exposure —
+> QuickConnect, DDNS, port-forwarding — is a separate concern the relay doesn't control; the
+> `internet_exposure` tool surfaces it.)
 
 ## How it works
 
@@ -58,7 +61,7 @@ The relay exposes capabilities in three tiers (see ARCHITECTURE.md):
 
 | Tier | Nature | Examples | Gating |
 |------|--------|----------|--------|
-| **A** | inspection (read-only) | `system_info`, `disk_usage`, `storage_health`, `list_containers`, `read_file` | none; `read_file` is allow/deny policied |
+| **A** | inspection (read-only) | `system_info`, `disk_usage`, `storage_health`, `list_containers`, `internet_exposure`, `performance`, `pending_updates`, `read_file` | none; `read_file` is allow/deny policied |
 | **B** | controlled mutation | `restart_container`, `restart_service` | typed args, audited |
 | **C** | raw root exec | `run(command, exec_token)` | dry-run → one-time replay token + catastrophic-pattern denylist |
 

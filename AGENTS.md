@@ -72,9 +72,12 @@ appliance composes its own list via `deny_patterns=` (router-hands passes
 `DEFAULT_DENY + ROUTER_DENY_EXTRA + cfg.run_deny_extra`, adding firmware/nvram-erase/mtd cases).
 
 ### Tuning the read policy
-Set `READ_ALLOW` / `READ_DENY` in the appliance `server.py`. The deny list should cover secret
-paths (`/etc/shadow`, ssh/gnupg keys, Tailscale state, docker secrets). `read_file` is the most
-likely accidental exfiltration vector — keep deny tight and allow narrow.
+Set `READ_ALLOW` / `READ_DENY` in the appliance `server.py` (the baseline). Per-box, **append**
+roots at runtime via `READ_ALLOW_EXTRA` / `READ_DENY_EXTRA` (set-but-empty is a no-op, so a copied
+compose stack can't silently drop a deny path); `READ_POLICY_OVERRIDE=1` makes the `*_EXTRA` lists
+fully replace the defaults (logged at startup). The deny list should cover secret paths
+(`/etc/shadow`, ssh/gnupg keys, Tailscale state, docker secrets). `read_file` is the most likely
+accidental exfiltration vector — keep deny tight and allow narrow.
 
 ### Deploying / operating
 See **[docs/deploy.md](docs/deploy.md)**. Day-to-day, start/stop from the Mac with
@@ -108,6 +111,13 @@ script). Use a **separate token per appliance**.
 
 **Status (2026-05-22):** both NAS boxes on Tailscale **1.98.2**; per-box DSM Task Scheduler jobs
 active — idle-watchdog (every 5 min) and tailscale-update (weekly); relays **off by default**.
+Three read-only Tier-A tools added — `internet_exposure`, `performance`, `pending_updates` (and the
+`run()`/Tier-A output cap is now env-tunable via `OUTPUT_CAP`). **Security remediation:**
+QuickConnect was found **enabled on both boxes** (relaying DSM/SSH; the 2026-05 audit missed it —
+see [docs/audit-2026-05.md](docs/audit-2026-05.md)). On **kappa** it has been **disabled** and SSH
+**password auth turned off** (key-only); auto-block confirmed on. **alpha still has QuickConnect on
++ SSH password auth on — pending the same remediation.** (Reminder: DSM 7 uses `synosystemctl`, not
+`synoservicectl`.)
 `router-hands` (`router1`) is **code-complete and tested but not yet deployed** — its relay runs on
 `kappa` and reaches the ASUS Merlin router over SSH; deploy per
 [router-hands/README.md](router-hands/README.md) (provision the SSH key + `TS_AUTHKEY` on kappa,

@@ -74,7 +74,10 @@ is effectively root on the host.** Security is therefore *not* capability sandbo
 four layers plus execution friction:
 
 1. **Isolation** — app bound to loopback; `tailscale serve` (tailnet-private TLS) is the only
-   ingress; never WAN, never `funnel`.
+   ingress; never WAN, never `funnel`. (This governs the *relay*. The *host's* own WAN exposure —
+   QuickConnect, DDNS, port-forwarding — is independent and not controlled here; the
+   `internet_exposure` Tier-A tool reports it. The 2026-05 audit wrongly cleared QuickConnect on
+   both NAS; see `docs/audit-2026-05.md`.)
 2. **Access** — per-appliance bearer token (`StaticTokenVerifier`, real 401) **and** Tailscale
    ACL (your identity → the relay, tcp:443) **and** optional `ALLOWED_USERS` identity check.
 3. **Ephemerality** — `restart: "no"`; brought up only for a session; idle watchdog auto-stops.
@@ -111,7 +114,7 @@ exec-token, the Mac approval prompt, and (for non-lifecycle sudo) the NAS passwo
 
 | Tier | Nature | Examples | Gating |
 |------|--------|----------|--------|
-| **A** | inspection (read-only) | `system_info`, `disk_usage`, `storage_health`, `list_containers`, `container_logs`, `service_status`, `read_file` | none; `read_file` is allow/deny policied |
+| **A** | inspection (read-only) | `system_info`, `disk_usage`, `storage_health`, `list_containers`, `container_logs`, `service_status`, `internet_exposure`, `performance`, `pending_updates`, `read_file` | none; `read_file` is allow/deny policied |
 | **B** | controlled mutation | `restart_container`, `restart_service` | typed args, audited, `destructiveHint` |
 | **C** | raw root exec | `run(command, exec_token)` | dry-run → one-time replay token + catastrophic-pattern denylist |
 
@@ -155,6 +158,12 @@ the last call (atomic write) and drives the idle watchdog.
 | `AUDIT_DIR` | `/var/log/mcp` | Where the audit log + `last_activity` are written (a mounted volume). |
 | `BIND_HOST` / `PORT` / `MCP_PATH` | `0.0.0.0` / `8787` / `/mcp` | Listen address inside the container (published to host loopback only). |
 | `GRACEFUL_TIMEOUT` | `30` | Seconds uvicorn drains in-flight calls on shutdown (compose `stop_grace_period` ≥ this). |
+| `OUTPUT_CAP` | `65536` | Runtime cap (bytes) on every tool's stdout/stderr, incl. `run()`. Raising it fixes silent truncation of large output (the audit hit the old hard-coded 4000). |
+| `OUTPUT_CAP_MAX` | `2097152` | Hard ceiling; neither `OUTPUT_CAP` nor a per-call `run(max_bytes=…)` may exceed it (anti-DoS / context-blowup). Per-call `max_bytes` only ever *narrows*. |
+| `RUN_DENY_EXTRA` | *(empty)* | Comma/newline-separated extra denylist regexes, **appended** to `DEFAULT_DENY` (never replaces). Invalid regex fails at startup. |
+| `READ_ALLOW_EXTRA` / `READ_DENY_EXTRA` | *(empty)* | Extra `read_file` allow/deny roots, **added** to the appliance defaults. Set-but-empty is a no-op (never wipes a default). |
+| `READ_POLICY_OVERRIDE` | *(unset)* | `1` makes the `*_EXTRA` lists fully **replace** the appliance read defaults (logged loudly at startup). Default = additive. |
+| `IDLE_SECONDS` | `1800` | Idle-watchdog timeout on the NAS before `relay-down.sh` (set in the Task Scheduler job, not the container). |
 
 ## Deployment shape (synology-hands)
 

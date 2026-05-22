@@ -89,8 +89,11 @@ def main() -> None:
 
     @mcp.tool()
     def service_status(name: str) -> dict:
-        """Status of a DSM service (synoservicectl --status <name>)."""
-        return host.run(["synoservicectl", "--status", name])
+        """Active status of a DSM service (synosystemctl get-active-status <name>).
+
+        DSM 7 replaced synoservicectl with synosystemctl; the old binary 404s on 7.x.
+        """
+        return host.run(["synosystemctl", "get-active-status", name])
 
     @mcp.tool()
     def internet_exposure() -> dict:
@@ -139,8 +142,11 @@ def main() -> None:
 
     @mcp.tool(annotations={"destructiveHint": True})
     def restart_service(name: str) -> dict:
-        """Restart a DSM service (synoservicectl --restart <name>)."""
-        return host.run(["synoservicectl", "--restart", name])
+        """Restart a DSM service (synosystemctl reload-or-restart <name>).
+
+        DSM 7 replaced synoservicectl with synosystemctl; the old binary 404s on 7.x.
+        """
+        return host.run(["synosystemctl", "reload-or-restart", name])
 
     # ---- Tier A: policied file read (additive-first; full replace only with override) ----
     if cfg.read_policy_override:
