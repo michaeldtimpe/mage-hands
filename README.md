@@ -78,13 +78,14 @@ mage-hands/
 ├── synology-hands/               # appliance #1: Synology NAS
 │   ├── server.py                 # Tier A/B tools; registers read_file + run()
 │   ├── Dockerfile  compose.yaml  .env.example
-│   ├── scripts/                  # relay-up · relay-down · idle-watchdog · smoke-test.py
+│   ├── scripts/                  # relay-up/down · idle-watchdog · tailscale-update · install-sudo · smoke-test.py
 │   └── README.md
 ├── router-hands/                 # appliance #2 (planned) — reuse the core, swap the Runner
 │   └── README.md
 ├── docs/
 │   ├── getting-started.md        # use a deployed relay from a fresh Claude session
-│   └── deploy.md                 # deploy/operate a new appliance
+│   ├── deploy.md                 # deploy/operate a new appliance
+│   └── maintenance.md            # update Tailscale, scheduled tasks, troubleshooting
 ├── ARCHITECTURE.md  AGENTS.md  CLAUDE.md  lessons.md
 └── README.md
 ```

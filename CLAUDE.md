@@ -17,6 +17,7 @@ remotely. Two layers:
 4. **[lessons.md](lessons.md)** — deployment lessons + Synology gotchas (home perms, sudo PATH, `get_http_headers` stripping auth, `/etc/crontab` is DSM-managed, …).
 5. **[docs/getting-started.md](docs/getting-started.md)** — how to *use* a deployed relay from a fresh session.
 6. **[docs/deploy.md](docs/deploy.md)** — how to deploy/operate a new appliance.
+7. **[docs/maintenance.md](docs/maintenance.md)** — updating Tailscale, scheduled tasks, host/relay troubleshooting.
 
 ## Using a deployed relay (the common case)
 The relay is **off by default**. To use it from a fresh Claude session:

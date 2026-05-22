@@ -98,6 +98,13 @@ script). Use a **separate token per appliance**.
 | `kappa` (synology-hands) | `kappa.local` | Synology 718+ (apollolake), DSM 7.2.1 x86_64 | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login; scoped passwordless sudo installed; Mac start/stop via `~/.config/mage-hands/relay.sh kappa up\|down` + approval rules in `~/.claude/settings.json` |
 | `alpha` (synology-hands) | `alpha.local` | Synology 1517+ (avoton), DSM 7.3.1 x86_64 | `https://alpha.<tailnet>.ts.net/mcp` | same setup mirrored from kappa; token at `~/.config/nas-relay/alpha.token`; `mcp__alpha__*` permission rules added; start/stop `~/.config/mage-hands/relay.sh alpha up\|down` |
 
+**Status (2026-05-22):** both boxes on Tailscale **1.98.2**; per-box DSM Task Scheduler jobs active —
+idle-watchdog (every 5 min) and tailscale-update (weekly); relays **off by default**.
+**To resume in a fresh session:** start a relay with `~/.config/mage-hands/relay.sh <kappa|alpha> up`,
+open a new Claude session (tools auto-load as `mcp__<name>__*`; read-only auto-runs, mutation/exec
+prompt), do the work, then `~/.config/mage-hands/relay.sh <name> down`. See
+[docs/getting-started.md](docs/getting-started.md) and [docs/maintenance.md](docs/maintenance.md).
+
 ## Important Patterns
 
 - **The relay binds `127.0.0.1:8787` only.** `tailscale serve` (HTTPS :443, tailnet-private)

@@ -148,3 +148,31 @@ fail with "a password is required."
 **Lesson:** "scoped NOPASSWD" only holds if the granted command *and every directory above it*
 are unwritable by the granted user. Audit the path, not just the sudoers entry — and prove the
 negative (general sudo still prompts), not just the positive.
+
+## Entering the host namespace gives you its binaries, not its PATH
+
+Updating Tailscale through the relay (`tailscale update --yes` via `run()`) downloaded and
+signature-verified the new SPK, then died: `synopkg install failed: exit status 127 — synopkg: No
+such file or directory`. `tailscale update` shells out to `synopkg` by bare name, but the relay
+runs commands via `nsenter -t 1` into PID 1's namespaces with a bare PATH that omits
+`/usr/syno/bin` — and the same bites cron / Task-Scheduler jobs. Re-running with an explicit
+`PATH=/usr/syno/bin:/usr/syno/sbin:…` let synopkg resolve and the install finished
+(1.58.2 → 1.98.2). The reason we were updating by hand at all: Synology Package Center never
+surfaced the update despite the box being ~2 years behind — the working path is Tailscale's own
+`tailscale update --yes`, not Package Center.
+
+**Lesson:** `nsenter` into the host gives you its *binaries* but not its login *PATH*. Any tool
+that itself calls DSM utilities (`synopkg`, `synoservicectl`, …) by bare name needs the syno bin
+dirs put back on PATH — and check the exit code, since the 127 hid behind otherwise-healthy
+download output.
+
+## When the host is slow, suspect the host daemon, not your container
+
+kappa's CPU "stayed high" after we started using it, and the easy story was "the relay is heavy."
+It wasn't — the relay was a near-idle uvicorn process and was in fact already stopped by the idle
+watchdog. The actual hog was `tailscaled` (the old 1.58.2) stuck at **364%**. The tell: measure,
+don't assume — `top` plus a per-PID `/proc/<pid>/stat` delta named the culprit in seconds, and the
+fix was a daemon restart (immediate) + version update (durable), nothing to do with mage-hands.
+
+**Lesson:** a new component is a tempting scapegoat for a pre-existing/adjacent problem. Attribute
+load to a measured PID before redesigning the thing you just shipped.
