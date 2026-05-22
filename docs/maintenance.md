@@ -294,7 +294,7 @@ sudo tail -5 /volume1/docker/mage-hands/router-hands/logs/audit.jsonl     # who 
 sudo docker exec router-hands sh -c 'ssh -o BatchMode=yes -i /secrets/router_key -p "${ROUTER_PORT:-22}" "${ROUTER_USER:-admin}@${ROUTER_HOST}" true' && echo egress-OK
 ```
 
-**Updating the sidecar Tailscale** — it's a pinned image (`tailscale/tailscale:v1.98.2` in
+**Updating the sidecar Tailscale** — it's a pinned image (`tailscale/tailscale:v1.98.3` in
 `compose.yaml`), not Package Center, so just bump the tag and recreate:
 
 ```sh

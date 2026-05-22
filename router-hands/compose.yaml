@@ -16,7 +16,7 @@ services:
   tailscale:
     # Pinned (not :latest): TS_SERVE_CONFIG env-var expansion is version-dependent, and this should
     # track the tailnet's Tailscale version. Bump deliberately (docs/maintenance.md).
-    image: tailscale/tailscale:v1.98.2
+    image: tailscale/tailscale:v1.98.3
     container_name: router-hands-ts
     hostname: router1                       # -> router1.<tailnet>.ts.net
     environment:
