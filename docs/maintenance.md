@@ -5,16 +5,40 @@ for first deploy see [deploy.md](deploy.md).
 
 ## Scheduled tasks on each box
 
-Both are DSM **Task Scheduler** root jobs, created via the GUI (`/etc/crontab` is DSM-managed —
-don't hand-edit). Control Panel → Task Scheduler → Create → Scheduled Task → User-defined script,
-User = `root`.
+All are DSM **Task Scheduler** root jobs (`/etc/crontab` is DSM-managed — don't hand-edit). The
+idle-watchdog and Tailscale jobs were made in the GUI (Control Panel → Task Scheduler → Create →
+Scheduled Task → User-defined script, User = `root`); the Plex and UPS jobs were created via the
+**`synowebapi` recipe below** — there *is* a scriptable path, the GUI is not the only way.
 
-| Task | Schedule | Run command |
-|------|----------|-------------|
-| Idle relay auto-stop | every 5 min | `/volume1/docker/mage-hands/synology-hands/scripts/idle-watchdog.sh` |
-| Tailscale auto-update | weekly | `/volume1/docker/mage-hands/synology-hands/scripts/tailscale-update.sh` |
-| Plex auto-update (alpha only — where Plex runs) | weekly | `/volume1/docker/mage-hands/synology-hands/scripts/plex-update.sh` |
-| UPS health check (alpha — where the UPS is) | daily | `/volume1/docker/mage-hands/synology-hands/scripts/ups-healthcheck.sh` |
+| Task | Schedule | Box | Run command |
+|------|----------|-----|-------------|
+| Idle relay auto-stop | every 5 min | both | `/volume1/docker/mage-hands/synology-hands/scripts/idle-watchdog.sh` |
+| Tailscale auto-update | weekly | both | `/volume1/docker/mage-hands/synology-hands/scripts/tailscale-update.sh` |
+| Plex auto-update | weekly (Sun 04:00) | alpha (id 18) | `/volume1/docker/mage-hands/synology-hands/scripts/plex-update.sh` |
+| UPS health check | daily (09:00) | alpha (id 19) | `/volume1/docker/mage-hands/synology-hands/scripts/ups-healthcheck.sh --quiet` |
+
+### Creating Task Scheduler jobs via the webapi (no GUI)
+
+`synoschedtask` is read-only, but `SYNO.Core.TaskScheduler method=create` works. The Plex + UPS
+jobs above were made with (run as root, e.g. via `mcp__alpha__run`):
+
+```sh
+synowebapi --exec api=SYNO.Core.TaskScheduler method=create version=3 \
+  name='mage-hands plex auto-update' owner=root type=script enable=true \
+  schedule='{"date":"2026/5/22","date_type":0,"hour":4,"minute":0,"last_work_hour":4,"repeat_date":0,"repeat_hour":0,"repeat_min":0,"week_day":"0"}' \
+  extra='{"notify_enable":false,"notify_if_error":false,"notify_mail":"","script":"/volume1/docker/mage-hands/synology-hands/scripts/plex-update.sh"}'
+```
+
+Schedule encoding (`date_type:0`, all `repeat_*:0` for a plain run-at-time-of-day):
+- **daily** → `week_day:"0,1,2,3,4,5,6"`; **weekly** → one day `week_day:"0"` (0=Sun … 6=Sat);
+  **every N min** → `repeat_min:N`. Time of day via `hour` / `minute`.
+- **v3 gotcha:** omit `monthly_week` or it errors `4800 monthly_week not supported in v3`.
+- **Email-on-failure** (the UPS down-alert): in `extra` set `notify_enable:true, notify_if_error:true,
+  notify_mail:"<addr>"`. A non-zero script exit then emails once per run (DSM SMTP must be on).
+
+Verify: `synoschedtask --get | grep -A4 '<name>'` or `synowebapi … method=get version=3 id=<id>`
+(shows `Next Trigger`). To run now, use the GUI **Run** button — `method=run` queues but doesn't
+reliably execute. The UPS job (id 19) emails `you@example.com` on a DOWN result.
 
 ## Updating Tailscale (Package Center lags — don't rely on it)
 
@@ -73,9 +97,8 @@ sudo /volume1/docker/mage-hands/synology-hands/scripts/plex-update.sh           
 ```
 
 - **Channel:** stable/public by default. For the Plex Pass channel, set `PLEX_TOKEN=<your token>`.
-- **Schedule** weekly via DSM Task Scheduler (root), same as Tailscale (don't hand-edit
-  `/etc/crontab`). Driving it through the relay: `mcp__alpha__run` the script path (dry-run, then
-  replay the token); the `--check` form is handy for "is Plex behind?" without changing anything.
+- **Already scheduled** on alpha — weekly Sunday 04:00 (Task Scheduler id 18, created via the
+  webapi recipe above). The `--check` form is handy for "is Plex behind?" without changing anything.
 
 ## Checking external access / internet exposure
 
@@ -146,11 +169,12 @@ sudo /volume1/docker/mage-hands/synology-hands/scripts/ups-healthcheck.sh --quie
 tail /var/log/mage-ups-health.log                                                   # the health log
 ```
 
-**Schedule it DAILY** via DSM Task Scheduler (root) — and on the task's **Settings** tab tick
-*"Send run details by email"* with *"only when the script terminates abnormally"*. Because a DOWN run
-exits non-zero, DSM then **emails you once a day while the UPS is down** (email is already configured:
-`smtp_mail_enabled=yes`). That's the "once-a-day if it's down" alert, riding DSM's own mail rather
-than fragile `synonotify` event tags.
+**Already scheduled** on alpha — daily 09:00 (Task Scheduler id 19, created via the webapi recipe
+above with `notify_if_error:true`). Because a DOWN run exits non-zero, DSM **emails
+`you@example.com` once a day while the UPS is down** (DSM SMTP is on: `smtp_mail_enabled=yes`)
+— the "once-a-day if it's down" alert, riding DSM's own mail rather than fragile `synonotify` event
+tags. (To recreate elsewhere or via the GUI, tick the task's **Settings** → *"Send run details by
+email"* → *"only when the script terminates abnormally"*.)
 
 ## High host CPU? Suspect `tailscaled`, not the relay
 

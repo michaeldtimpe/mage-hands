@@ -120,6 +120,16 @@ alpha; auto-block confirmed on. On **alpha** additionally: app containers (jacke
 sonarr-1/transmission) set to `restart=unless-stopped`, the `watchtower` container (docker.sock:rw +
 net=host) **removed**, and Transmission RPC **whitelisted** to localhost+LAN. (Reminder: DSM 7 uses
 `synosystemctl`, not `synoservicectl`; QuickConnect lives in `/usr/syno/etc/synorelayd/`.)
+
+**New scripts + schedules (alpha):** `plex-update.sh` (Plex bumped 1.43.1→1.43.2; weekly Task
+Scheduler **id 18**, Sun 04:00) and `ups-healthcheck.sh` (daily **id 19**, 09:00, **emails on a DOWN
+result**) — both created via the `synowebapi SYNO.Core.TaskScheduler` recipe in
+[docs/maintenance.md](docs/maintenance.md). The alpha **UPS** (CyberPower LE1000DG) read as
+dead because its USB interface wasn't enumerating; after a **physical port move** it's **online** and
+DSM auto-loaded `usbhid-ups`. **Approval model:** this operator's `~/.claude/settings.json` now
+**auto-allows** the relay `run` / `restart_*` tools + the `relay.sh` helper (no per-call prompts) —
+the relay's own catastrophic-pattern denylist, two-call `exec_token` gate, identity allowlist, and
+audit log still apply server-side.
 `router-hands` (`router1`) is **code-complete and tested but not yet deployed** — its relay runs on
 `kappa` and reaches the ASUS Merlin router over SSH; deploy per
 [router-hands/README.md](router-hands/README.md) (provision the SSH key + `TS_AUTHKEY` on kappa,
