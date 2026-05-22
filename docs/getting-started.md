@@ -23,6 +23,11 @@ session so the tools load.
 Claude can also bring the relay up itself — it runs the same `relay.sh` helper, allowed without a
 prompt via the `Bash(...relay.sh:*)` rule (see [Permissions](#permissions) below).
 
+**Shortcuts** — `~/.config/mage-hands/relay-aliases.sh` (sourced by `~/.zshrc`) wraps the helper so
+you can skip the path: `start-kappa-relay` / `start-alpha-relay` (and `stop-*`) for one box, and
+**`start-relay`** to bring up *both* NAS relays at once (`relay.sh kappa up && relay.sh alpha up`);
+`stop-relay` brings both down.
+
 ## 1. Bring the relay up
 
 Remote MCP servers have zero attack surface when not running, so you start it for the session.
@@ -164,8 +169,8 @@ ssh magehands@kappa.local 'sudo tail -5 /volume1/docker/mage-hands/synology-hand
 
 | Symptom | Likely cause / fix |
 |---------|--------------------|
-| `kappa` shows disconnected in `/mcp` | Relay is down — run `relay-up.sh`. |
+| `kappa` shows disconnected in `/mcp` | Relay is down — run `~/.config/mage-hands/relay.sh kappa up` (or the `start-relay` shortcut). |
 | Tools don't appear though `claude mcp list` says connected | Session started before the relay came up — start a new session. |
 | `401` / "needs authentication" | Token mismatch — the Mac token (`~/.config/nas-relay/kappa.token`) must equal `RELAY_TOKEN` in the NAS `.env`. |
 | Every tool call is rejected for identity | `ALLOWED_USERS` doesn't include your Tailscale login (`tailscale status`). |
-| `relay-up.sh` hangs on Serve / asks for consent | Tailscale Serve/HTTPS not enabled on the tailnet — enable HTTPS in the admin console. |
+| `relay.sh … up` hangs on Serve / asks for consent | Tailscale Serve/HTTPS not enabled on the tailnet — enable HTTPS in the admin console. |

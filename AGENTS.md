@@ -85,7 +85,9 @@ accidental exfiltration vector — keep deny tight and allow narrow.
 ### Deploying / operating
 See **[docs/deploy.md](docs/deploy.md)**. Day-to-day, start/stop from the Mac with
 `~/.config/mage-hands/relay.sh <appliance> up|down` (uses the NAS's scoped passwordless sudo);
-the idle watchdog auto-stops it.
+the idle watchdog auto-stops it. Shell shortcuts in `~/.config/mage-hands/relay-aliases.sh`
+(sourced by `~/.zshrc`) wrap these — `start-kappa-relay`/`start-alpha-relay` (+ `stop-*`), and
+`start-relay`/`stop-relay` bring **both** NAS relays up/down at once.
 
 ### Granting scoped passwordless start/stop
 `scripts/install-sudo.sh` (run as root on the appliance) installs root-owned copies of the
