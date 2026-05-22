@@ -9,14 +9,15 @@ session so the tools load.
 ## TL;DR
 
 ```sh
-# 1. Bring the relay up from the Mac (scoped passwordless sudo on the NAS — no password):
-~/.config/mage-hands/relay.sh up
+# 1. Bring a relay up from the Mac (scoped passwordless sudo — no password).
+#    Appliances: kappa, alpha (both expose the same tools).
+~/.config/mage-hands/relay.sh kappa up
 
 # 2. Start a NEW Claude Code session on your Mac.
-#    The relay's tools auto-load as  mcp__kappa__*  — just ask Claude to use them.
+#    Its tools auto-load as  mcp__kappa__*  (or mcp__alpha__*) — just ask Claude to use them.
 
 # 3. When done (or let the idle watchdog do it after 30 min):
-~/.config/mage-hands/relay.sh down
+~/.config/mage-hands/relay.sh kappa down
 ```
 
 Claude can also bring the relay up itself — starting it is gated by an **approval prompt**
@@ -28,7 +29,7 @@ Remote MCP servers have zero attack surface when not running, so you start it fo
 From the Mac (uses key-based SSH + the NAS's scoped passwordless sudo, so no password prompt):
 
 ```sh
-~/.config/mage-hands/relay.sh up
+~/.config/mage-hands/relay.sh kappa up      # or: alpha
 ```
 
 This runs the root-owned `mage-hands-relay-up` on the NAS, which builds (cached after the first
@@ -111,7 +112,7 @@ the password, which Claude doesn't have.)
 ## Bring it down
 
 ```sh
-~/.config/mage-hands/relay.sh down
+~/.config/mage-hands/relay.sh kappa down      # or: alpha
 ```
 
 This turns off Tailscale Serve and stops the container. The `kappa` MCP server will then show

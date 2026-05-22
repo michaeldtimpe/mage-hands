@@ -168,10 +168,16 @@ A small helper makes start/stop a single, gateable command:
 ```sh
 cat > ~/.config/mage-hands/relay.sh <<'EOF'
 #!/bin/sh
-case "$1" in
+# Usage: relay.sh <appliance> up|down  — add a case per appliance.
+APP="$1"; ACT="$2"
+case "$APP" in
+  <name>) HOST=<admin>@<nas>.local ;;
+  *) echo "unknown appliance: $APP" >&2; exit 2 ;;
+esac
+case "$ACT" in
   up|down) ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o LogLevel=ERROR \
-             <admin>@<nas>.local "sudo -n /usr/local/sbin/mage-hands-relay-$1" ;;
-  *) echo "usage: $0 up|down" >&2; exit 2 ;;
+             "$HOST" "sudo -n /usr/local/sbin/mage-hands-relay-$ACT" ;;
+  *) echo "usage: relay.sh <appliance> up|down" >&2; exit 2 ;;
 esac
 EOF
 chmod +x ~/.config/mage-hands/relay.sh
@@ -194,8 +200,8 @@ mutation, raw exec, and starting the relay require approval:
 ## Daily operation
 
 ```sh
-~/.config/mage-hands/relay.sh up      # from the Mac: build → healthy → serve (passwordless)
-~/.config/mage-hands/relay.sh down    # serve off → compose down
+~/.config/mage-hands/relay.sh <appliance> up      # from the Mac: build → healthy → serve (passwordless)
+~/.config/mage-hands/relay.sh <appliance> down    # serve off → compose down
 ```
 
 Or directly on the NAS: `sudo /usr/local/sbin/mage-hands-relay-up` / `-down`.

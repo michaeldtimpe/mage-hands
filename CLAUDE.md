@@ -20,8 +20,8 @@ remotely. Two layers:
 
 ## Using a deployed relay (the common case)
 The relay is **off by default**. To use it from a fresh Claude session:
-1. Bring it up with `~/.config/mage-hands/relay.sh up` (scoped passwordless sudo on the NAS;
-   starting it is approval-gated). See getting-started.md.
+1. Bring it up with `~/.config/mage-hands/relay.sh <appliance> up` (scoped passwordless sudo on
+   the NAS; starting it is approval-gated). Appliances: `kappa`, `alpha`. See getting-started.md.
 2. Start a **new** Claude Code session — remote MCP servers load at session start, so its
    tools appear as `mcp__<name>__*` (e.g. `mcp__kappa__system_info`).
 3. Prefer Tier-A inspection tools (they auto-run). Mutation (`restart_*`), raw exec (`run`),

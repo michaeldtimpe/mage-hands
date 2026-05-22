@@ -71,8 +71,8 @@ likely accidental exfiltration vector — keep deny tight and allow narrow.
 
 ### Deploying / operating
 See **[docs/deploy.md](docs/deploy.md)**. Day-to-day, start/stop from the Mac with
-`~/.config/mage-hands/relay.sh up|down` (uses the NAS's scoped passwordless sudo); the idle
-watchdog auto-stops it.
+`~/.config/mage-hands/relay.sh <appliance> up|down` (uses the NAS's scoped passwordless sudo);
+the idle watchdog auto-stops it.
 
 ### Granting scoped passwordless start/stop
 `scripts/install-sudo.sh` (run as root on the appliance) installs root-owned copies of the
@@ -95,7 +95,8 @@ script). Use a **separate token per appliance**.
 
 | Name | Host | Hardware / OS | MCP URL | Notes |
 |------|------|---------------|---------|-------|
-| `kappa` (synology-hands) | `kappa.local` | Synology 718+ (apollolake), DSM 7.2.1 x86_64 | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login; scoped passwordless sudo installed; Mac start/stop via `~/.config/mage-hands/relay.sh` + approval rules in `~/.claude/settings.json` |
+| `kappa` (synology-hands) | `kappa.local` | Synology 718+ (apollolake), DSM 7.2.1 x86_64 | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login; scoped passwordless sudo installed; Mac start/stop via `~/.config/mage-hands/relay.sh kappa up\|down` + approval rules in `~/.claude/settings.json` |
+| `alpha` (synology-hands) | `alpha.local` | Synology 1517+ (avoton), DSM 7.3.1 x86_64 | `https://alpha.<tailnet>.ts.net/mcp` | same setup mirrored from kappa; token at `~/.config/nas-relay/alpha.token`; `mcp__alpha__*` permission rules added; start/stop `~/.config/mage-hands/relay.sh alpha up\|down` |
 
 ## Important Patterns
 
