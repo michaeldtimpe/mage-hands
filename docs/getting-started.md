@@ -9,30 +9,34 @@ session so the tools load.
 ## TL;DR
 
 ```sh
-# 1. Bring the relay up on the appliance (over SSH)
-ssh magehands@kappa.local
-sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-up.sh
-exit
+# 1. Bring the relay up from the Mac (scoped passwordless sudo on the NAS — no password):
+~/.config/mage-hands/relay.sh up
 
 # 2. Start a NEW Claude Code session on your Mac.
 #    The relay's tools auto-load as  mcp__kappa__*  — just ask Claude to use them.
 
 # 3. When done (or let the idle watchdog do it after 30 min):
-ssh magehands@kappa.local 'sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-down.sh'
+~/.config/mage-hands/relay.sh down
 ```
+
+Claude can also bring the relay up itself — starting it is gated by an **approval prompt**
+(see [Permissions](#permissions) below).
 
 ## 1. Bring the relay up
 
-Remote MCP servers have zero attack surface when not running, so you start it for the session:
+Remote MCP servers have zero attack surface when not running, so you start it for the session.
+From the Mac (uses key-based SSH + the NAS's scoped passwordless sudo, so no password prompt):
 
 ```sh
-ssh magehands@kappa.local
-sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-up.sh
+~/.config/mage-hands/relay.sh up
 ```
 
-`relay-up.sh` builds (cached after the first time), waits for the container to report healthy,
-then exposes it via Tailscale Serve. It's done when you see `synology-hands is up and served
-over Tailscale.`
+This runs the root-owned `mage-hands-relay-up` on the NAS, which builds (cached after the first
+time), waits for the container to report healthy, then exposes it via Tailscale Serve. It's done
+when you see `synology-hands is up and served over Tailscale.`
+
+> **Claude starting it:** if you ask Claude to start the relay, it runs the same helper — and
+> because that command is on the permissions `ask` list, you'll get an approval prompt first.
 
 ## 2. Start a fresh Claude session
 
@@ -88,10 +92,26 @@ outright**, before any token is issued. Targeted operations under a volume are a
 
 Good habit: ask Claude to **dry-run and show you the command first**, then confirm.
 
-## 4. Bring it down
+## Permissions
+
+A fresh session applies these rules from `~/.claude/settings.json` so routine work is
+frictionless but anything with side effects pauses for you:
+
+| Action | Behavior |
+|--------|----------|
+| Read-only tools (`system_info`, `disk_usage`, `storage_health`, `list_containers`, `container_logs`, `service_status`, `read_file`) | **auto-run**, no prompt |
+| Mutation tools (`restart_container`, `restart_service`) | **approval prompt** each call |
+| Raw exec (`run`) | **approval prompt** each call |
+| Starting/stopping the relay (`relay.sh`) | **approval prompt** |
+
+So Claude can investigate freely, but you approve every change. (On the NAS side, scoped
+passwordless sudo only covers the relay lifecycle; any genuinely destructive sudo still needs
+the password, which Claude doesn't have.)
+
+## Bring it down
 
 ```sh
-ssh magehands@kappa.local 'sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-down.sh'
+~/.config/mage-hands/relay.sh down
 ```
 
 This turns off Tailscale Serve and stops the container. The `kappa` MCP server will then show

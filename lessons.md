@@ -131,3 +131,20 @@ then ran via `sudo -S` fed from a 0600 file. The moment the deploy finished, tha
 
 **Lesson:** treat a shared human password as a bootstrap-only credential with a deletion plan,
 and keep service secrets out of command lines and shell history from the start.
+
+## Scoped NOPASSWD is a property of the whole path, not the sudoers line
+
+Granting the relay user passwordless sudo for the lifecycle scripts is what lets Claude start the
+server unattended. But a NOPASSWD'd script the user can *edit* is just passwordless arbitrary
+root — they'd rewrite it. So the copies live at `/usr/local/sbin/mage-hands-relay-{up,down}`,
+root-owned, with a root-owned parent so the user can't even directory-swap them. The first
+instinct — a `.bin` subdir inside the (relay-user-owned) deploy tree — would have reopened the
+hole: deleting/replacing a file depends on write permission of its *parent directory*, not the
+file's own ownership. And the install failed loudly first because `/usr/local/sbin` didn't exist
+on the box (only `/usr/local/bin`), a reminder to not assume standard dirs on an appliance OS.
+Verify the scope the boring way: `sudo -n <lifecycle-script>` must succeed and `sudo -n id` must
+fail with "a password is required."
+
+**Lesson:** "scoped NOPASSWD" only holds if the granted command *and every directory above it*
+are unwritable by the granted user. Audit the path, not just the sudoers entry — and prove the
+negative (general sudo still prompts), not just the positive.

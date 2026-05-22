@@ -138,19 +138,76 @@ Tag the NAS at login: `tailscale up --advertise-tags=tag:relay`.
 Stops the relay after 30 minutes idle (override with `IDLE_SECONDS`). It reads `last_activity`
 (touched on every tool call) and runs `relay-down.sh` when stale.
 
+## 11. Scoped passwordless sudo (recommended)
+
+So Claude (or you) can start/stop the relay without the admin password — while keeping
+everything else password-gated — run the installer **as root, once**:
+
+```sh
+ssh <admin>@<nas>.local 'sudo sh /volume1/docker/mage-hands/synology-hands/scripts/install-sudo.sh'
+```
+
+It installs **root-owned copies** of the lifecycle scripts to `/usr/local/sbin/mage-hands-relay-{up,down}`
+(the relay user can't edit them, and `/usr/local`'s root-owned parent stops it swapping the
+directory), then writes `/etc/sudoers.d/mage-hands` granting NOPASSWD for exactly those two
+paths. Verify the scope holds:
+
+```sh
+ssh <admin>@<nas>.local 'sudo -n /usr/local/sbin/mage-hands-relay-down'   # works, no password
+ssh <admin>@<nas>.local 'sudo -n id'                                      # MUST fail: "a password is required"
+```
+
+The second command failing is the point: only the relay lifecycle is passwordless; anything
+genuinely destructive still requires the password (= a human). Re-run `install-sudo.sh` after
+editing `relay-up.sh` / `relay-down.sh` to refresh the copies.
+
+## 12. Claude Code permissions (on the Mac)
+
+A small helper makes start/stop a single, gateable command:
+
+```sh
+cat > ~/.config/mage-hands/relay.sh <<'EOF'
+#!/bin/sh
+case "$1" in
+  up|down) ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o LogLevel=ERROR \
+             <admin>@<nas>.local "sudo -n /usr/local/sbin/mage-hands-relay-$1" ;;
+  *) echo "usage: $0 up|down" >&2; exit 2 ;;
+esac
+EOF
+chmod +x ~/.config/mage-hands/relay.sh
+```
+
+Then add permission rules to `~/.claude/settings.json` so read-only tools run freely while
+mutation, raw exec, and starting the relay require approval:
+
+```jsonc
+{ "permissions": {
+    "allow": [ "mcp__<name>__system_info", "mcp__<name>__disk_usage",
+               "mcp__<name>__storage_health", "mcp__<name>__list_containers",
+               "mcp__<name>__container_logs", "mcp__<name>__service_status",
+               "mcp__<name>__read_file" ],
+    "ask":   [ "mcp__<name>__restart_container", "mcp__<name>__restart_service",
+               "mcp__<name>__run",
+               "Bash(/Users/<you>/.config/mage-hands/relay.sh:*)" ] } }
+```
+
 ## Daily operation
 
 ```sh
-sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-up.sh     # build → healthy → serve
-sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-down.sh   # serve off → compose down
+~/.config/mage-hands/relay.sh up      # from the Mac: build → healthy → serve (passwordless)
+~/.config/mage-hands/relay.sh down    # serve off → compose down
 ```
+
+Or directly on the NAS: `sudo /usr/local/sbin/mage-hands-relay-up` / `-down`.
 
 ## Updating the relay
 
 ```sh
 rsync -az --exclude='.git/' --exclude='.env' --exclude='**/logs/' \
   -e 'ssh -i ~/.ssh/id_ed25519' ~/Downloads/mage-hands/ <admin>@<nas>.local:/volume1/docker/mage-hands/
-ssh <admin>@<nas>.local 'sudo /volume1/docker/mage-hands/synology-hands/scripts/relay-up.sh'   # rebuilds
+# if relay-up.sh / relay-down.sh changed, refresh the root-owned copies:
+ssh <admin>@<nas>.local 'sudo sh /volume1/docker/mage-hands/synology-hands/scripts/install-sudo.sh'
+~/.config/mage-hands/relay.sh up   # rebuilds (cached) and re-serves
 ```
 
 ## Rotating the token

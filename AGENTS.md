@@ -70,8 +70,21 @@ paths (`/etc/shadow`, ssh/gnupg keys, Tailscale state, docker secrets). `read_fi
 likely accidental exfiltration vector — keep deny tight and allow narrow.
 
 ### Deploying / operating
-See **[docs/deploy.md](docs/deploy.md)**. Day-to-day: `scripts/relay-up.sh` /
-`scripts/relay-down.sh` on the appliance; the idle watchdog auto-stops it.
+See **[docs/deploy.md](docs/deploy.md)**. Day-to-day, start/stop from the Mac with
+`~/.config/mage-hands/relay.sh up|down` (uses the NAS's scoped passwordless sudo); the idle
+watchdog auto-stops it.
+
+### Granting scoped passwordless start/stop
+`scripts/install-sudo.sh` (run as root on the appliance) installs root-owned copies of the
+lifecycle scripts to `/usr/local/sbin/mage-hands-relay-{up,down}` and a `/etc/sudoers.d/mage-hands`
+NOPASSWD rule for **only those two paths**. The copies must live somewhere the relay user can't
+edit *and* can't directory-swap — `/usr/local/sbin` works because `/usr/local` is root-owned.
+Re-run after editing the lifecycle scripts. Everything else stays password-gated by design.
+
+### Setting the Claude Code approval model
+In `~/.claude/settings.json`, `permissions.allow` lists the read-only relay tools (auto-run) and
+`permissions.ask` lists `restart_container` / `restart_service` / `run` plus the
+`relay.sh` helper (approval each call). Adjust the lists to change what prompts.
 
 ### Rotating the token
 Generate a new token (`openssl rand -hex 32`), update the appliance `.env` and recreate the
@@ -82,7 +95,7 @@ script). Use a **separate token per appliance**.
 
 | Name | Host | Hardware / OS | MCP URL | Notes |
 |------|------|---------------|---------|-------|
-| `kappa` (synology-hands) | `kappa.local` | Synology 718+ (apollolake), DSM 7.2.1 x86_64 | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login |
+| `kappa` (synology-hands) | `kappa.local` | Synology 718+ (apollolake), DSM 7.2.1 x86_64 | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login; scoped passwordless sudo installed; Mac start/stop via `~/.config/mage-hands/relay.sh` + approval rules in `~/.claude/settings.json` |
 
 ## Important Patterns
 
@@ -99,6 +112,9 @@ script). Use a **separate token per appliance**.
   identity, tool, args, status, ms) and updates `last_activity`. Logs dir is `chmod 700` root.
 - **Ephemerality is a control, not a convenience.** `restart: "no"` + the idle watchdog keep
   the root-capable surface from lingering.
+- **Two extra gates wrap the relay:** scoped passwordless sudo on the NAS (lifecycle scripts
+  only — destructive sudo still needs the password) and Mac-side approval prompts for mutation /
+  raw exec / relay start. Read-only inspection stays frictionless.
 
 ## Things to Watch Out For
 

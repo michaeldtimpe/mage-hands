@@ -82,6 +82,29 @@ Plus **execution friction**: `run()` requires a replayed dry-run token and refus
 patterns outright (see below). The bearer token is the crown jewel — token + tailnet access =
 root on the box.
 
+### Host-side: scoped passwordless sudo
+
+`install-sudo.sh` grants the relay user NOPASSWD sudo for **only** the lifecycle scripts —
+root-owned copies at `/usr/local/sbin/mage-hands-relay-{up,down}` (the relay user can neither
+edit the copies nor swap the root-owned directory). So starting/stopping the relay is
+unattended-friendly, while every other sudo — anything genuinely destructive — still requires
+the password, i.e. a human. (This scopes *direct* sudo; the relay container is privileged by
+design and is gated separately by the layers above.)
+
+### Client-side: approval gates
+
+On the Mac, `~/.claude/settings.json` permission rules make read-only relay tools auto-run while
+the side-effecting ones pause for the human:
+
+| Permission | Tools |
+|------------|-------|
+| `allow` (auto-run) | `system_info`, `disk_usage`, `storage_health`, `list_containers`, `container_logs`, `service_status`, `read_file` |
+| `ask` (approval each call) | `restart_container`, `restart_service`, `run`, and the `relay.sh` start/stop helper |
+
+Claude can investigate freely; every mutation, raw exec, and relay start requires an explicit
+approval. "Truly destructive" actions are thus gated three ways: the relay's own denylist +
+exec-token, the Mac approval prompt, and (for non-lifecycle sudo) the NAS password.
+
 ## Tool tiers
 
 | Tier | Nature | Examples | Gating |
