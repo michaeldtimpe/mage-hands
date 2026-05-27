@@ -98,3 +98,11 @@ sh scripts/relay-down.sh     # tailscale serve reset + docker compose down
 - Container env vars (incl. `RELAY_TOKEN`) do **not** leak into host process listings.
 - `tailscale serve` config persists across reboots; if the NAS reboots mid-session the Serve
   listener stays up but the backend is gone — just `relay-up.sh` again.
+- `run()` has a **300 s hard timeout** (`common/mage_hands_core/exec.py`). For deploys that build
+  images or pull large layers, background it on the host (`nohup ... > /tmp/x.log 2>&1 &`) and
+  poll the log from separate `run()` calls — do NOT retry the slow command. See lessons.md for
+  the pattern.
+- If you want non-interactive ssh from the Mac as the relay's host user to be able to drive
+  docker directly (`ssh magehands@nas 'docker ps'`), see lessons.md → "When the relay user needs
+  docker without going through the relay." Two reversible tweaks: `synogroup --member docker ...`
+  and a pair of `/usr/bin/docker*` symlinks.

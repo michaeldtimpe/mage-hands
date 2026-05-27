@@ -401,3 +401,64 @@ override `ROUTER_REMOTE_SHELL`). General rule for this relay family: a tool that
 with wrong-shaped output is worse than one that errors — a security tool returning blanks reads as
 "nothing to see." When a whole *class* of tools (everything routed through one helper) goes quiet,
 suspect the shared path, not each tool.
+
+## `run`'s 300 s timeout is a hard cap, not a hint — long ops need background+poll
+
+`register_run_tool` (`common/mage_hands_core/exec.py:269`) hard-codes `timeout=300` (and the
+exec-token TTL at line 268 is the same 300 s). That's plenty for inspection commands — it's
+catastrophic for a real deploy. Live example from a `reaped-whirlwind` kappa deploy:
+`docker-compose -p reaped-whirlwind up -d --build inference alerting` pulls the torch CPU wheel
+(~200 MB) and builds two images. On kappa that takes ~7 min. The relay returned
+`Command [...] timed out after 300 seconds` while the build was still running on the host — and a
+naive retry would race it. (Around 60 s after the relay gave up, the new containers transitioned
+from `State: created` to `Up X seconds (healthy)`.)
+
+**Lesson:** for any `run()` likely to exceed ~4 minutes, do not invoke it foreground. Background
+it on the target and write a known log path, then poll via separate `run()` calls:
+
+```sh
+nohup sh -c 'docker-compose -p reaped-whirlwind up -d --build inference alerting; \
+             echo exit=$? > /tmp/build.done' > /tmp/build.log 2>&1 < /dev/null &
+disown 2>/dev/null
+```
+
+Then poll: `tail /tmp/build.log` and `list_containers` until the new containers show
+`Status: Up X seconds (healthy)`. The `register_run_tool` `timeout` and `ttl` parameters are
+already plumbed — if you want to lift the cap properly, wire them to `RUN_TIMEOUT` / `RUN_EXEC_TTL`
+env vars in `synology-hands/server.py` and bump them for the relay instance that drives heavy
+deploys. Tradeoff: a longer hard cap also means a runaway command can sit longer; background-and-
+poll caps Claude's blocking time without changing the host-side ceiling.
+
+## When the relay user needs docker without going through the relay
+
+The relay container drives the host via `nsenter -t 1` as root, so it always has docker. But the
+relay's *host* user (`magehands` on kappa) is a separate identity — useful for
+`ssh magehands@nas 'docker ps'` from the Mac, which bypasses the relay (lower latency, no
+exec-token dance) for inspection work. By default that user has neither the docker socket group
+nor `/usr/local/bin` on its non-interactive ssh PATH, so `docker: command not found` is the first
+symptom.
+
+The fix on a Synology host (DSM 7.2) is two tweaks, both reversible:
+
+```sh
+# 1. Add the relay user to the docker group. `synogroup --member` REPLACES the member list, so
+#    pass all existing members back in plus the new one. (List them via `grep ^docker /etc/group`.)
+synogroup --member docker youradmin magehands
+
+# 2. Put docker on the default non-interactive PATH. The DSM-installed binaries live at
+#    /var/packages/ContainerManager/target/usr/bin/, symlinked into /usr/local/bin — which is
+#    on root's PATH and interactive-login PATH, but NOT on dropbear's non-interactive sh PATH
+#    (/usr/bin:/bin:/usr/sbin:/sbin). Symlink into /usr/bin to cover non-interactive too:
+ln -s /usr/local/bin/docker         /usr/bin/docker
+ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+```
+
+Group membership requires a fresh ssh session to take effect. Verify with
+`ssh magehands@nas 'docker ps --format "{{.Names}}"'` — no leading absolute path.
+
+**Lesson:** the relay's privilege model isn't the same as the relay-user's. Granting the relay's
+host user `docker` socket access via the docker group is a one-line elevation that gives plain ssh
+back as a tool (`docker ps`, `docker logs`, `docker exec`) without expanding the relay's tier-A/B/C
+surface area. Sshd's non-interactive PATH is the standard "but it works on my login!" trap on
+appliance OSes — symlink the binary into a PATH-default directory rather than chasing
+`PermitUserEnvironment` (which requires an sshd reload, raising the blast radius).
