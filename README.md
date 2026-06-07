@@ -96,9 +96,10 @@ mage-hands/
 │   ├── deploy.md                 # deploy/operate a new appliance
 │   └── maintenance.md            # update Tailscale, scheduled tasks, troubleshooting
 ├── ARCHITECTURE.md  AGENTS.md  CLAUDE.md  lessons.md
+├── LICENSE                       # MIT
 └── README.md
 ```
 
 ## License
 
-MIT.
+[MIT](LICENSE) © Michael Timpe.
