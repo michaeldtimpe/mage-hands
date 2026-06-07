@@ -96,6 +96,7 @@ mage-hands/
 │   ├── deploy.md                 # deploy/operate a new appliance
 │   └── maintenance.md            # update Tailscale, scheduled tasks, troubleshooting
 ├── ARCHITECTURE.md  AGENTS.md  CLAUDE.md  lessons.md
+├── CONTRIBUTING.md               # how to contribute + security-first ground rules
 ├── LICENSE                       # MIT
 └── README.md
 ```
