@@ -164,6 +164,20 @@ then confirm the bring-up's `SSH egress: PASS`). It now has synology-parity Tier
 `run()` **on by default** (`ROUTER_ENABLE_RUN=false` to disable). On first deploy, verify the
 Merlin-specific assumptions in [router-hands tests + the plan's live checklist] (esp. `sshd_enable`→
 WAN mapping, `vts_rulelist` field order, CPU-temp source) before trusting `internet_exposure` output.
+**Security hardening pass (2026-06-10):** a code review (the project was flagged for cybersecurity
+safety) drove a round of verified bugfixes + hardening across `common/` and both appliances. The
+headline fix closed a **read-policy symlink bypass** — `fs_reader` resolved symlinks but only
+re-checked `/host` containment, so a relative symlink under an allowed root
+(`/volume1/link -> ../../etc/shadow`) could read outside the allow/deny lists; it now re-runs
+`PathPolicy.check()` on the resolved path (see lessons.md). Also: byte-accurate output truncation,
+bounded audit `args`, `last_activity` touched at call **start** too (idle watchdog can't kill a
+long `run()` mid-call), expired `exec_token` GC, an `sh -c '<reboot>'` denylist pattern, a 16-char
+`RELAY_TOKEN` floor, `SSHRunner` fail-fast on missing/empty `known_hosts` when strict, `firewall_set_rules`
+`default_policy` validation, `_iowait_delta` clamped to [0,100], `shlex.quote` on `_nvram_many` keys,
+and `${PORT}`-parameterized compose healthchecks. **kappa + alpha redeployed and live-verified**
+(the symlink now returns "denied by read policy"); router-hands got the fixes in-repo but is still
+undeployed. 129 unit tests green.
+
 **To resume in a fresh session:** start a relay with `~/.config/mage-hands/relay.sh <kappa|alpha> up`,
 open a new Claude session (tools auto-load as `mcp__<name>__*`; read-only auto-runs, mutation/exec
 prompt), do the work, then `~/.config/mage-hands/relay.sh <name> down`. See

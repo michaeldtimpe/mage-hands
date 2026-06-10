@@ -27,6 +27,24 @@ state when an agent decides to "inspect this config to help debug." It gets a st
 **Lesson:** rank tools by *what an over-helpful caller would do with them*, not by how dangerous
 they look. The innocuous reader needs a policy as much as the scary executor.
 
+## A path policy must re-check what symlink resolution turned the path into
+
+The read policy above is lexical — it normalizes `..` without touching the filesystem. But the
+reader then maps the path under `/host` and **resolves symlinks** before reading, and originally
+re-checked only `/host` *containment*, not the policy. A relative symlink under an allowed,
+user-writable root (`/volume1/link -> ../../etc/shadow`) resolves back to `/host/etc/shadow`:
+still inside `/host`, so containment passed — but the allow/deny lists only ever saw the
+pre-resolution path `/volume1/link`, so the deny on `/etc/shadow` never fired. The reader now
+re-runs `PathPolicy.check()` on the symlink-resolved host-absolute path. (Verified live on both
+NAS boxes: the same symlink that would have leaked `/etc/shadow` now returns "denied by read
+policy.") The SSH reader can't do this — it can't resolve *remote* symlinks — which is exactly
+why its allow roots stay conservative and its deny list exhaustive.
+
+**Lesson:** every layer that *transforms* a path (join, normalize, resolve symlinks) can carry it
+back across a boundary an earlier check already cleared. Validate after the **last** transform,
+not just the first — a lexical allow/deny list in front of a symlink-resolving reader is a lock on
+a door the reader walks around.
+
 ## Security here is isolation + ephemerality, not sandboxing — say so
 
 The relay is `privileged` + `pid:host` + `/:/host`; once up it is root on the NAS. Pretending
