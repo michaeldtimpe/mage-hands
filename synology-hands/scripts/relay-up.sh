@@ -28,7 +28,8 @@ if [ "$status" != healthy ]; then
     exit 1
 fi
 
-# Idempotent: re-asserting the same mapping is a no-op.
+# Idempotent: re-asserting the same mapping is a no-op. NOTE: if you change PORT in .env
+# (compose interpolates it), update this proxy target by hand to match.
 sudo "$TS" serve --bg --https=443 http://localhost:8787
 sudo "$TS" serve status
 echo "synology-hands is up and served over Tailscale."

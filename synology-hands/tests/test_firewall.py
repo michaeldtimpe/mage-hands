@@ -4,7 +4,7 @@ The lock-out guard is the safety-critical piece — it is what stops firewall_se
 stranding direct LAN admin access (the firewall can't cut the relay's loopback/tailnet path, but
 it CAN cut a human's LAN SSH/DSM). Run from this directory:
 
-    uv run --with pytest python -m pytest tests -q
+    uv run --with pytest --with pydantic python -m pytest tests -q
 """
 
 from __future__ import annotations

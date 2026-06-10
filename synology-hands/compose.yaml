@@ -16,13 +16,14 @@ services:
     stop_grace_period: 35s              # >= core graceful_timeout (30s) for clean shutdown
     env_file: .env
     ports:
-      - "127.0.0.1:8787:8787"           # loopback ONLY; Tailscale Serve fronts it
+      - "127.0.0.1:${PORT:-8787}:${PORT:-8787}"   # loopback ONLY; Tailscale Serve fronts it
     volumes:
       - /:/host                         # host filesystem (read/write, by design)
       - ./logs:/var/log/mcp             # persistent audit log + last_activity
     healthcheck:
       # TCP listen check (a /mcp GET would 401 once auth is on, which isn't "unhealthy").
-      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8787), 3).close()"]
+      # ${PORT} interpolates from the project-dir .env, so it tracks the relay's actual port.
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', ${PORT:-8787}), 3).close()"]
       interval: 10s
       timeout: 5s
       retries: 3

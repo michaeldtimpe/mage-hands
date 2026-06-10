@@ -145,14 +145,16 @@ One JSON object per line in `<AUDIT_DIR>/audit.jsonl` (rotating, 10 MB × 10):
 ```
 
 `status` is `ok` or `error:<ExceptionType>`. A refused `run()` logs `ok` because the tool
-returned a refusal payload rather than raising. `<AUDIT_DIR>/last_activity` holds the epoch of
-the last call (atomic write) and drives the idle watchdog.
+returned a refusal payload rather than raising. `args` is the arguments object, or a
+**truncated string rendering** when the serialized form exceeds ~4 KB (so one huge `run()`
+command can't bloat the log). `<AUDIT_DIR>/last_activity` holds the epoch of the last call
+(atomic write, touched at call start AND end) and drives the idle watchdog.
 
 ## Configuration (environment)
 
 | Var | Default | Meaning |
 |-----|---------|---------|
-| `RELAY_TOKEN` | *(required)* | Shared bearer token; must match the Mac's `claude mcp add` header. |
+| `RELAY_TOKEN` | *(required)* | Shared bearer token; must match the Mac's `claude mcp add` header. Minimum 16 chars (the relay refuses to start otherwise); generate with `openssl rand -hex 32`. |
 | `NODE_ID` | hostname | Appliance identifier in the audit log. |
 | `ALLOWED_USERS` | *(empty)* | Comma-separated Tailscale logins allowed to call tools; empty = token+ACL only. |
 | `AUDIT_DIR` | `/var/log/mcp` | Where the audit log + `last_activity` are written (a mounted volume). |

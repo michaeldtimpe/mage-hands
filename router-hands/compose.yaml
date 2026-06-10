@@ -55,8 +55,10 @@ services:
       - ./secrets/known_hosts:/secrets/known_hosts:ro        # pinned router host key
     healthcheck:
       # TCP listen check on the loopback the relay binds INSIDE the shared netns (a /mcp GET would
-      # 401 once auth is on, which isn't "unhealthy").
-      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8788), 3).close()"]
+      # 401 once auth is on, which isn't "unhealthy"). ${PORT} interpolates from the project-dir
+      # .env; NOTE changing PORT still requires hand-editing serve.json's proxy target (it's a
+      # bind-mounted file, not compose-interpolated).
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', ${PORT:-8788}), 3).close()"]
       interval: 10s
       timeout: 5s
       retries: 3

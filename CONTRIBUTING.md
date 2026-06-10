@@ -52,7 +52,7 @@ Run each package's suite from its own directory:
 cd common        && uv run --with pytest --with fastmcp pytest tests -q
 
 # Synology appliance (pure firewall/lock-out logic, no live host)
-cd synology-hands && uv run --with pytest python -m pytest tests -q
+cd synology-hands && uv run --with pytest --with pydantic python -m pytest tests -q
 
 # Router appliance (offline parsers + import-time secret guard, FakeHost)
 cd router-hands  && uv run --with pytest --with fastmcp --with ../common pytest tests -q
