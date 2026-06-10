@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -369,7 +370,11 @@ def _nvram_many(host, keys) -> dict:
     allowlist. NEVER `nvram show` (it dumps secrets) — the allowlist is the boundary. Returns
     {key: value}; value is "" for empty OR missing (nvram get on a missing key = rc 0 + empty,
     so callers must treat empty as 'unknown', never 'disabled')."""
-    script = "for k in %s; do echo \"$k=$(nvram get $k)\"; done" % " ".join(keys)
+    # shlex.quote each key: today they come only from frozen module-level tuples, but this keeps
+    # a future caller with tainted keys from turning the loop into an injection point.
+    script = "for k in %s; do echo \"$k=$(nvram get $k)\"; done" % " ".join(
+        shlex.quote(k) for k in keys
+    )
     r = host.run(["sh", "-c", script])
     vals = {k: "" for k in keys}
     for line in (r.get("stdout") or "").splitlines():
@@ -462,7 +467,7 @@ def _performance(host, out, ifaces) -> dict:
 
 
 def _iowait_delta(text: str) -> object:
-    # Copied verbatim from synology-hands/server.py:_iowait_delta — INTENTIONAL divergence: each
+    # Kept in sync with synology-hands/server.py:_iowait_delta — INTENTIONAL duplication: each
     # appliance owns its tool helpers (not hoisted to common/ to avoid touching the deployed NAS
     # relay). /proc/stat is identical on both Linux hosts, so the logic is the same.
     chunks = text.split("---")
@@ -482,7 +487,8 @@ def _iowait_delta(text: str) -> object:
     iowait = b[4] - a[4]
     if total <= 0:
         return 0.0
-    return round(100 * iowait / total, 1)
+    # counters can wrap/reset between samples → clamp to [0, 100]
+    return min(100.0, max(0.0, round(100 * iowait / total, 1)))
 
 
 def _thermal(host, ifaces) -> dict:

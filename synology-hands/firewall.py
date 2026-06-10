@@ -518,14 +518,19 @@ def register_firewall_tools(mcp, host) -> None:
         ALLOWED_USERS-style "don't strand yourself" rule. The relay's own loopback/tailnet path is
         never at risk. To round-trip: firewall_rules(profile) -> edit the 'rules' list -> pass here.
         """
-        status = _status_core()
-        name = profile or status.get("active_profile") or "default"
-
+        # Validate ALL inputs before any host work, so a bad request refuses with zero host calls.
         if not isinstance(rules, list) or not rules:
             return {"refused": True, "reason": "rules must be a non-empty list"}
         problems = {i: errs for i, r in enumerate(rules) if (errs := validate_rule(r))}
         if problems:
             return {"refused": True, "reason": "invalid rule(s)", "problems": problems}
+        if default_policy is not None and default_policy not in POLICIES:
+            return {"refused": True,
+                    "reason": f"default_policy must be one of {sorted(POLICIES)} "
+                              f"(got {default_policy!r})"}
+
+        status = _status_core()
+        name = profile or status.get("active_profile") or "default"
 
         norm = [normalize_rule(r) for r in rules]
         guard = lockout_guard(norm, management_source)

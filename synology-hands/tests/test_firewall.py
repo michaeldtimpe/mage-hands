@@ -158,3 +158,44 @@ def test_parse_webapi_extracts_trailing_json():
 
 def test_parse_webapi_handles_garbage():
     assert _parse_webapi("no json here").get("_parse_error") is True
+
+
+# ── firewall_set_rules input validation (refuses before any host work) ─────────────────────────
+
+class CapturingMCP:
+    """Records registered tools by name; @mcp.tool(...) returns the function unchanged."""
+
+    def __init__(self):
+        self.tools = {}
+
+    def tool(self, *a, **k):
+        def deco(fn):
+            self.tools[fn.__name__] = fn
+            return fn
+        return deco
+
+
+class ExplodingHost:
+    """A refused request must never reach the host."""
+
+    def run(self, argv, timeout=60, cap=None):
+        raise AssertionError(f"host must not be called, got: {argv}")
+
+
+def test_set_rules_refuses_invalid_default_policy_without_host_calls():
+    from firewall import register_firewall_tools
+
+    mcp = CapturingMCP()
+    register_firewall_tools(mcp, ExplodingHost())
+    res = mcp.tools["firewall_set_rules"](rules=[allow_all_mgmt()], default_policy="permit")
+    assert res.get("refused") is True
+    assert "default_policy" in res.get("reason", "")
+
+
+def test_set_rules_refuses_empty_rules_without_host_calls():
+    from firewall import register_firewall_tools
+
+    mcp = CapturingMCP()
+    register_firewall_tools(mcp, ExplodingHost())
+    res = mcp.tools["firewall_set_rules"](rules=[])
+    assert res.get("refused") is True

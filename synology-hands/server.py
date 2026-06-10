@@ -377,7 +377,8 @@ def _iowait_delta(text: str) -> object:
     iowait = b[4] - a[4]
     if total <= 0:
         return 0.0
-    return round(100 * iowait / total, 1)
+    # counters can wrap/reset between samples → clamp to [0, 100]
+    return min(100.0, max(0.0, round(100 * iowait / total, 1)))
 
 
 def _cpu_temp(host):

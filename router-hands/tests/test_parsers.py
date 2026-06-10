@@ -225,3 +225,30 @@ def test_secret_key_guard_fires_when_forbidden_key_injected():
     injected = server._EXPOSURE_NVRAM_KEYS + ("http_passwd",)
     forbidden = [k for k in injected if server._SECRET_KEY_RE.search(k)]
     assert forbidden == ["http_passwd"]
+
+
+def test_iowait_delta_clamped_on_counter_wrap():
+    # iowait counter goes BACKWARDS (wrap/reset) while total still advances → clamp to 0, not
+    # a negative percentage.
+    text = "cpu  100 0 100 700 100 0 0 0\n---\ncpu  200 0 200 800 50 0 0 0\n"
+    assert _iowait_delta(text) == 0.0
+
+
+class RecordingHost:
+    def __init__(self):
+        self.scripts = []
+
+    def run(self, argv, timeout=60, cap=None):
+        if argv[:2] == ["sh", "-c"]:
+            self.scripts.append(argv[2])
+        return {"rc": 0, "stdout": "", "stderr": ""}
+
+
+def test_nvram_many_quotes_hostile_keys():
+    # Keys come from frozen tuples today; the quoting is defense-in-depth for future callers.
+    host = RecordingHost()
+    _nvram_many(host, ("lan_ipaddr", "bad;key$(x)"))
+    script = host.scripts[0]
+    assert "lan_ipaddr" in script
+    assert "'bad;key$(x)'" in script          # hostile key is single-quoted
+    assert "bad;key$(x) " not in script       # ...and never appears bare
