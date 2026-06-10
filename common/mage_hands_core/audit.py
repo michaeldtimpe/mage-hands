@@ -45,9 +45,22 @@ def touch_activity(audit_dir: str) -> None:
 
 
 def truncate(text: str | None, limit: int = 4000) -> str | None:
-    if text is None or len(text) <= limit:
+    """Truncate ``text`` to ``limit`` BYTES of UTF-8 (every cap in this codebase is bytes)."""
+    if text is None:
+        return None
+    if len(text) <= limit and text.isascii():  # fast path: bytes == chars
         return text
-    return text[:limit] + f"...<+{len(text) - limit} bytes truncated>"
+    data = text.encode("utf-8")
+    if len(data) <= limit:
+        return text
+    head = data[:limit].decode("utf-8", errors="ignore")  # never splits a multibyte char
+    return head + f"...<+{len(data) - limit} bytes truncated>"
+
+
+# Bound on the serialized tool-arguments rendering in an audit line. A run() command can be
+# arbitrarily large; without a cap one call could bloat audit.jsonl entries past what jq/SIEM
+# consumers comfortably parse.
+ARGS_CAP = 4000
 
 
 class AuditMiddleware(Middleware):
@@ -75,6 +88,19 @@ class AuditMiddleware(Middleware):
         cid = secrets.token_hex(8)
         started = time.time()
         status = "ok"
+        # Touch at call START as well as in finally: a run() can hold the connection for up to
+        # 300s, and an end-only touch lets the idle watchdog tear the relay down mid-call when
+        # the call starts near the idle deadline.
+        touch_activity(self.audit_dir)
+
+        # Bound the logged arguments: keep the structured object in the common case, degrade to
+        # a truncated STRING rendering when oversized (the line itself stays valid JSON).
+        args = getattr(ctx.message, "arguments", None)
+        if args is not None:
+            rendered = json.dumps(args, default=str)
+            if len(rendered) > ARGS_CAP:
+                args = truncate(rendered, ARGS_CAP)
+
         try:
             return await call_next(ctx)
         except Exception as exc:
@@ -90,7 +116,7 @@ class AuditMiddleware(Middleware):
                         "node": self.node_id,
                         "user": user,
                         "tool": getattr(ctx.message, "name", "?"),
-                        "args": getattr(ctx.message, "arguments", None),
+                        "args": args,
                         "status": status,
                         "ms": round((time.time() - started) * 1000),
                     },
