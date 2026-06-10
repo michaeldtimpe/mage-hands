@@ -96,20 +96,52 @@ def test_from_env_requires_host(monkeypatch):
         SSHRunner.from_env()
 
 
-def test_from_env_defaults(monkeypatch):
+def test_from_env_defaults(monkeypatch, tmp_path):
+    # strict=yes (the default) now requires a populated known_hosts at startup, so point at one
+    # instead of relying on the literal /secrets/known_hosts default (absent on a dev box).
+    kh = tmp_path / "known_hosts"
+    kh.write_text("r.lan ssh-ed25519 AAAA\n")
     monkeypatch.setenv("ROUTER_HOST", "r.lan")
-    for k in ("ROUTER_USER", "ROUTER_PORT", "ROUTER_SSH_KEY", "ROUTER_KNOWN_HOSTS",
+    monkeypatch.setenv("ROUTER_KNOWN_HOSTS", str(kh))
+    for k in ("ROUTER_USER", "ROUTER_PORT", "ROUTER_SSH_KEY",
               "ROUTER_STRICT_HOST_KEY", "ROUTER_CONNECT_TIMEOUT", "ROUTER_CONTROL_PERSIST",
               "ROUTER_REMOTE_SHELL"):
         monkeypatch.delenv(k, raising=False)
     r = SSHRunner.from_env(cap=99)
     assert (r.host, r.user, r.port) == ("r.lan", "admin", 22)
     assert r.key_file == "/secrets/router_key"
-    assert r.known_hosts == "/secrets/known_hosts"
+    assert r.known_hosts == str(kh)
     assert r.strict_host_key_checking == "yes"
     assert r.control_persist == 60
     assert r.remote_shell == "/bin/sh"
     assert r.cap == 99
+
+
+def test_from_env_strict_yes_missing_known_hosts_fails_fast(monkeypatch, tmp_path):
+    monkeypatch.setenv("ROUTER_HOST", "r.lan")
+    monkeypatch.setenv("ROUTER_STRICT_HOST_KEY", "yes")
+    monkeypatch.setenv("ROUTER_KNOWN_HOSTS", str(tmp_path / "nope"))
+    with pytest.raises(SystemExit):
+        SSHRunner.from_env()
+
+
+def test_from_env_strict_yes_empty_known_hosts_fails_fast(monkeypatch, tmp_path):
+    kh = tmp_path / "known_hosts"
+    kh.write_text("")
+    monkeypatch.setenv("ROUTER_HOST", "r.lan")
+    monkeypatch.setenv("ROUTER_STRICT_HOST_KEY", "yes")
+    monkeypatch.setenv("ROUTER_KNOWN_HOSTS", str(kh))
+    with pytest.raises(SystemExit):
+        SSHRunner.from_env()
+
+
+def test_from_env_accept_new_missing_known_hosts_ok(monkeypatch, tmp_path):
+    # first-deploy bootstrap path: must still start with no pinned key
+    monkeypatch.setenv("ROUTER_HOST", "r.lan")
+    monkeypatch.setenv("ROUTER_STRICT_HOST_KEY", "accept-new")
+    monkeypatch.setenv("ROUTER_KNOWN_HOSTS", str(tmp_path / "nope"))
+    r = SSHRunner.from_env()
+    assert r.strict_host_key_checking == "accept-new"
 
 
 def test_from_env_accept_new_warns_when_known_hosts_populated(monkeypatch, tmp_path, capsys):

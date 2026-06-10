@@ -207,6 +207,20 @@ class SSHRunner:
                 file=sys.stderr,
                 flush=True,
             )
+        # The inverse footgun: strict pinning with no pinned key means EVERY ssh call fails
+        # with a cryptic host-key error at tool time. Fail fast at startup instead.
+        if strict == "yes" and (
+            not known_hosts
+            or not os.path.exists(known_hosts)
+            or os.path.getsize(known_hosts) == 0
+        ):
+            raise SystemExit(
+                f"ROUTER_STRICT_HOST_KEY=yes but the known_hosts file "
+                f"({known_hosts or 'ROUTER_KNOWN_HOSTS unset'}) is missing or empty — every SSH "
+                f"call would fail host-key verification. Pin the router's key first (e.g. "
+                f"`ssh-keyscan -p <port> <router>` >> that file; see router-hands/README.md), or "
+                f"bootstrap a first deploy with ROUTER_STRICT_HOST_KEY=accept-new."
+            )
         return cls(
             host=host,
             user=os.environ.get("ROUTER_USER", "admin"),
@@ -253,6 +267,11 @@ DEFAULT_DENY = [
     # poweroff/halt as an invocation (incl. `sudo reboot`, `/sbin/poweroff`) plus the systemctl
     # subcommand form, DSM's synopoweroff, `init 0`, LVM teardown, and killing PID 1 / -1.
     _CMD + r"(?:reboot|shutdown|poweroff|halt)\b",
+    # Quoted/direct `sh -c` payload form of the availability backstop: the command-position
+    # patterns above can't see inside the payload string. Narrow on purpose (the keyword must
+    # OPEN the payload) so `grep 'reboot' ...`, `last reboot`, `sh -c 'last reboot'` stay
+    # allowed. (`\bsh` cannot match inside `ssh` — no word boundary between the two s's.)
+    r"\bsh\s+-c\s+[\"']?\s*(?:reboot|shutdown|poweroff|halt)\b",
     r"\bsystemctl\b[^|;&]*\b(?:reboot|poweroff|halt|kexec)\b",
     r"\bsynopoweroff\b",
     r"\binit\s+0\b",
@@ -292,6 +311,13 @@ def register_run_tool(
         again replaying that exact token (same command) to execute. Catastrophic patterns are
         refused outright.
         """
+        # GC expired dry-run tokens — otherwise un-replayed dry-runs accumulate forever.
+        # Cardinality stays tiny (one entry per un-replayed dry-run in an ephemeral, mostly
+        # single-user relay), so a full scan per call is fine.
+        now = time.time()
+        for tok in [t for t, (_, exp) in pending.items() if exp < now]:
+            pending.pop(tok, None)
+
         if any(p.search(command) for p in deny):
             return {"refused": True, "reason": "matches catastrophic-pattern denylist"}
 
@@ -325,4 +351,5 @@ def register_run_tool(
             cap = output_cap
         return runner.run(["sh", "-c", command], timeout=timeout, cap=cap)
 
+    run._pending = pending  # test/observability hook (pending is otherwise closure-local)
     return run

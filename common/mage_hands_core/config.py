@@ -51,6 +51,13 @@ class Config:
         token = os.environ.get("RELAY_TOKEN")
         if not token:
             raise SystemExit("RELAY_TOKEN is required (set it in .env)")
+        # Sanity floor, not a cryptographic bound: this token is the only credential between
+        # the tailnet and root on the target. Docs prescribe `openssl rand -hex 32` (64 chars).
+        if len(token) < 16:
+            raise SystemExit(
+                f"RELAY_TOKEN is too short ({len(token)} chars; minimum 16). "
+                "Generate one with: openssl rand -hex 32"
+            )
 
         output_cap_max = int(os.environ.get("OUTPUT_CAP_MAX", str(2 * 1024 * 1024)))
         output_cap = min(int(os.environ.get("OUTPUT_CAP", "65536")), output_cap_max)

@@ -36,10 +36,11 @@ class FakeRunner:
         return {"rc": 0, "stdout": "ok", "stderr": ""}
 
 
-def make_run(output_cap=DEFAULT_OUTPUT_CAP, extra=None):
+def make_run(output_cap=DEFAULT_OUTPUT_CAP, extra=None, ttl=300):
     runner = FakeRunner()
     run = register_run_tool(
         FakeMCP(), runner,
+        ttl=ttl,
         deny_patterns=DEFAULT_DENY + (extra or []),
         output_cap=output_cap,
     )
@@ -57,6 +58,9 @@ REFUSED = [
     "reboot", "reboot now", "sudo reboot", "/sbin/reboot -f", "shutdown -h now", "poweroff",
     "halt", "systemctl reboot", "systemctl --force poweroff", "synopoweroff", "init 0",
     "lvremove /dev/vg0/lv0", "vgremove vg0", "kill -9 1", "kill -1", "kill -s KILL 1",
+    # `sh -c` payload forms (quoted, unquoted, odd spacing) of the availability backstop
+    "sh -c 'reboot'", 'sh -c "shutdown -h now"', "/bin/sh -c 'poweroff'",
+    "busybox sh -c 'halt'", "sh -c reboot", "sh    -c    reboot", "sh -c    'shutdown now'",
 ]
 
 ALLOWED = [
@@ -64,6 +68,8 @@ ALLOWED = [
     "last reboot", "grep reboot /var/log/messages", "journalctl | grep poweroff",
     "cat /etc/synoinfo.conf", "rm -rf /volume1/docker/app/cache", "kill -9 12345",
     "docker ps -a", "synogetkeyvalue /etc/synoinfo.conf ddns_update",
+    # the keyword merely INSIDE an `sh -c` payload (not opening it) stays allowed
+    "sh -c 'last reboot'", "sh -c 'grep reboot /var/log/messages'",
 ]
 
 
@@ -115,6 +121,20 @@ def test_max_bytes_only_narrows_never_raises():
     assert runner.calls[-1]["cap"] == 100  # clamped to server cap, never exceeds it
 
 
+def test_expired_pending_tokens_are_garbage_collected(monkeypatch):
+    import mage_hands_core.exec as ex
+
+    run, _ = make_run(ttl=300)
+    run("echo a")
+    run("echo b")
+    assert len(run._pending) == 2
+
+    real_time = ex.time.time
+    monkeypatch.setattr(ex.time, "time", lambda: real_time() + 301)
+    run("echo c")  # any call sweeps the expired entries
+    assert len(run._pending) == 1  # only echo-c's fresh token survives
+
+
 def test_shellrunner_truncates_at_cap():
     r = ShellRunner(cap=5)
     res = r.run(["printf", "%s", "abcdefghij"])
@@ -135,22 +155,28 @@ def test_split_list_set_but_empty_is_noop():
 
 
 def test_output_cap_clamped_to_max(monkeypatch):
-    monkeypatch.setenv("RELAY_TOKEN", "x")
+    monkeypatch.setenv("RELAY_TOKEN", "x" * 32)
     monkeypatch.setenv("OUTPUT_CAP", "999999999")
     monkeypatch.setenv("OUTPUT_CAP_MAX", "1000")
     cfg = Config.from_env()
     assert cfg.output_cap == 1000
 
 
+def test_short_relay_token_fails_at_load(monkeypatch):
+    monkeypatch.setenv("RELAY_TOKEN", "x" * 15)
+    with pytest.raises(SystemExit):
+        Config.from_env()
+
+
 def test_malformed_run_deny_extra_fails_at_load(monkeypatch):
-    monkeypatch.setenv("RELAY_TOKEN", "x")
+    monkeypatch.setenv("RELAY_TOKEN", "x" * 32)
     monkeypatch.setenv("RUN_DENY_EXTRA", "[unclosed")
     with pytest.raises(SystemExit):
         Config.from_env()
 
 
 def test_read_policy_extras_parse(monkeypatch):
-    monkeypatch.setenv("RELAY_TOKEN", "x")
+    monkeypatch.setenv("RELAY_TOKEN", "x" * 32)
     monkeypatch.setenv("READ_ALLOW_EXTRA", "/volume2,/extra")
     monkeypatch.setenv("READ_DENY_EXTRA", "")  # set-but-empty → no-op
     monkeypatch.setenv("READ_POLICY_OVERRIDE", "yes")
