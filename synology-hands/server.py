@@ -165,7 +165,10 @@ def main() -> None:
     else:
         allow = READ_ALLOW + cfg.read_allow_extra
         deny = READ_DENY + cfg.read_deny_extra
-    register_read_file(mcp, PathPolicy(allow, deny), fs_reader("/host"))
+    policy = PathPolicy(allow, deny)
+    # policy is passed to fs_reader too: it re-checks the symlink-RESOLVED host path, so a
+    # relative symlink under an allowed root can't dodge the allow/deny lists.
+    register_read_file(mcp, policy, fs_reader("/host", policy=policy))
 
     # ---- Tier C: gated raw exec (denylist = DEFAULT_DENY + additive RUN_DENY_EXTRA) ----
     register_run_tool(

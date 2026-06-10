@@ -6,7 +6,8 @@ reads are constrained two ways:
   - ``PathPolicy`` enforces an allowlist of roots and a denylist of secret paths, after
     lexically normalizing the requested absolute path (resolves ``..`` without touching the FS);
   - ``fs_reader`` performs the actual read by joining a mount prefix (``/host`` on the NAS),
-    resolving symlinks, and re-checking containment as a final guard.
+    resolving symlinks, and re-checking containment AND the read policy against the resolved
+    location as a final guard.
 """
 
 from __future__ import annotations
@@ -38,7 +39,9 @@ class PathPolicy:
         return norm
 
 
-def fs_reader(prefix: str = "/host", max_bytes: int = 200_000) -> Callable[[str], str]:
+def fs_reader(
+    prefix: str = "/host", max_bytes: int = 200_000, policy: PathPolicy | None = None
+) -> Callable[[str], str]:
     """Build a reader that maps a host-absolute path under ``prefix`` and reads it safely."""
     base = Path(prefix).resolve()
 
@@ -46,6 +49,12 @@ def fs_reader(prefix: str = "/host", max_bytes: int = 200_000) -> Callable[[str]
         target = (base / host_abs.lstrip("/")).resolve()  # join THEN resolve symlinks
         if target != base and base not in target.parents:
             raise ValueError("path traversal blocked")
+        if policy is not None:
+            # A RELATIVE symlink under an allowed root can resolve elsewhere UNDER the prefix
+            # (e.g. /volume1/link -> ../../etc/shadow lands on /host/etc/shadow), passing the
+            # containment check above while evading the allow/deny lists, which only ever saw
+            # the pre-resolution path. Re-check the REAL host location of the file we read.
+            policy.check("/" + target.relative_to(base).as_posix())
         return truncate(target.read_text(errors="replace"), max_bytes)
 
     return read

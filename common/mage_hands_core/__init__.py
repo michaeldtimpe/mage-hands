@@ -6,7 +6,8 @@ An appliance relay (synology-hands, router-hands, ...) is assembled from:
     mcp  = build_server("synology-hands", INSTRUCTIONS, cfg)   # auth + audit + lifespan
     host = NsenterRunner()                                     # how to execute on the target
     # ... register appliance-specific @mcp.tool() functions ...
-    register_read_file(mcp, PathPolicy(allow, deny), fs_reader("/host"))
+    policy = PathPolicy(allow, deny)
+    register_read_file(mcp, policy, fs_reader("/host", policy=policy))
     register_run_tool(mcp, host)                               # gated Tier-C raw exec
     run_server(mcp, cfg)
 
