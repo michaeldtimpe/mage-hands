@@ -24,9 +24,9 @@ Claude can also bring the relay up itself — it runs the same `relay.sh` helper
 prompt via the `Bash(...relay.sh:*)` rule (see [Permissions](#permissions) below).
 
 **Shortcuts** — `~/.config/mage-hands/relay-aliases.sh` (sourced by `~/.zshrc`) wraps the helper so
-you can skip the path: `start-kappa-relay` / `start-alpha-relay` (and `stop-*`) for one box, and
-**`start-relay`** to bring up *both* NAS relays at once (`relay.sh kappa up && relay.sh alpha up`);
-`stop-relay` brings both down.
+you can skip the path: `start-kappa-relay` / `start-alpha-relay` / `start-router-relay` (and
+`stop-*`) for one box, and **`start-all-relays`** to bring up all three relays at once (kappa +
+alpha + router1); `stop-all-relays` brings them all down.
 
 ## 1. Bring the relay up
 
@@ -169,7 +169,7 @@ ssh magehands@kappa.local 'sudo tail -5 /volume1/docker/mage-hands/synology-hand
 
 | Symptom | Likely cause / fix |
 |---------|--------------------|
-| `kappa` shows disconnected in `/mcp` | Relay is down — run `~/.config/mage-hands/relay.sh kappa up` (or the `start-relay` shortcut). |
+| `kappa` shows disconnected in `/mcp` | Relay is down — run `~/.config/mage-hands/relay.sh kappa up` (or the `start-all-relays` shortcut). |
 | Tools don't appear though `claude mcp list` says connected | Session started before the relay came up — start a new session. |
 | `401` / "needs authentication" | Token mismatch — the Mac token (`~/.config/nas-relay/kappa.token`) must equal `RELAY_TOKEN` in the NAS `.env`. |
 | Every tool call is rejected for identity | `ALLOWED_USERS` doesn't include your Tailscale login (`tailscale status`). |

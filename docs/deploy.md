@@ -209,7 +209,7 @@ EOF
 chmod +x ~/.config/mage-hands/relay.sh
 ```
 
-Optional but handy — thin shell shortcuts so you can type `start-kappa-relay` / `start-relay`
+Optional but handy — thin shell shortcuts so you can type `start-kappa-relay` / `start-all-relays`
 instead of the full path. Drop them in `relay-aliases.sh` and source it from your shell rc:
 
 ```sh
@@ -219,10 +219,8 @@ start-kappa-relay()  { ~/.config/mage-hands/relay.sh kappa  up; }
 stop-kappa-relay()   { ~/.config/mage-hands/relay.sh kappa  down; }
 start-alpha-relay()  { ~/.config/mage-hands/relay.sh alpha  up; }
 stop-alpha-relay()   { ~/.config/mage-hands/relay.sh alpha  down; }
-start-all-relays()   { start-kappa-relay && start-alpha-relay; }
-stop-all-relays()    { stop-kappa-relay;   stop-alpha-relay; }
-start-relay()        { start-all-relays; }   # bring up BOTH NAS relays at once
-stop-relay()         { stop-all-relays; }    # bring both down
+start-all-relays()   { start-kappa-relay && start-alpha-relay; }  # bring up all NAS relays at once
+stop-all-relays()    { stop-kappa-relay;   stop-alpha-relay; }    # bring them all down
 EOF
 echo '[ -f "$HOME/.config/mage-hands/relay-aliases.sh" ] && source "$HOME/.config/mage-hands/relay-aliases.sh"' >> ~/.zshrc
 ```

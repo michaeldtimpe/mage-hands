@@ -86,8 +86,9 @@ accidental exfiltration vector — keep deny tight and allow narrow.
 See **[docs/deploy.md](docs/deploy.md)**. Day-to-day, start/stop from the Mac with
 `~/.config/mage-hands/relay.sh <appliance> up|down` (uses the NAS's scoped passwordless sudo);
 the idle watchdog auto-stops it. Shell shortcuts in `~/.config/mage-hands/relay-aliases.sh`
-(sourced by `~/.zshrc`) wrap these — `start-kappa-relay`/`start-alpha-relay` (+ `stop-*`), and
-`start-relay`/`stop-relay` bring **both** NAS relays up/down at once.
+(sourced by `~/.zshrc`) wrap these — `start-kappa-relay`/`start-alpha-relay`/`start-router-relay`
+(+ `stop-*`), and `start-all-relays`/`stop-all-relays` bring **all three** relays (kappa + alpha +
+router1) up/down at once.
 
 ### Granting scoped passwordless start/stop
 `scripts/install-sudo.sh` (run as root on the appliance) installs root-owned copies of the
@@ -118,7 +119,7 @@ script). Use a **separate token per appliance**.
 |------|------|---------------|---------|-------|
 | `kappa` (synology-hands) | `kappa.local` | Synology 718+ (apollolake), DSM 7.2.1 x86_64 | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login; scoped passwordless sudo installed; Mac start/stop via `~/.config/mage-hands/relay.sh kappa up\|down` + approval rules in `~/.claude/settings.json` |
 | `alpha` (synology-hands) | `alpha.local` | Synology 1517+ (avoton), DSM 7.3.1 x86_64; 5× 10TB → 2× RAID5 → LVM `volume_1` ~37 TiB; **SSD cache** 2× Intel D3-S4510 240GB M.2 SATA (M2D17) in RAID1 read-write/writeback (DSM `nvc1`/`nvc2`) | `https://alpha.<tailnet>.ts.net/mcp` | same setup mirrored from kappa; token at `~/.config/nas-relay/alpha.token`; `mcp__alpha__*` permission rules added; start/stop `~/.config/mage-hands/relay.sh alpha up\|down` |
-| `router1` (router-hands) | runs on `kappa.local` | ASUS Asuswrt-Merlin router, reached over SSH | `https://router1.<tailnet>.ts.net/mcp` | **code-complete and tested but not yet deployed** — deploy per [router-hands/README.md](router-hands/README.md). SSHRunner relay container on kappa + Tailscale **sidecar** node; unprivileged; SSH key in `router-hands/secrets/`; `BIND_HOST=127.0.0.1`/`PORT=8788`; synology-parity Tier-A tools (`disk_usage`/`performance`/`pending_updates`/`internet_exposure`) + gated `reboot_router`; `run()` **on by default** (`ROUTER_ENABLE_RUN=false` to disable; router denylist also closes indirect reboot paths so `reboot_router` is the only intended one); lifecycle `mage-hands-router-relay-{up,down}`; `relay.sh router1 up\|down` (SSHes to kappa, not the router) |
+| `router1` (router-hands) | runs on `kappa.local` | ASUS Asuswrt-Merlin router, reached over SSH | `https://router1.<tailnet>.ts.net/mcp` | **deployed & operational (2026-06-16); provisioned per [router-hands/README.md](router-hands/README.md)**. SSHRunner relay container on kappa + Tailscale **sidecar** node; unprivileged; SSH key in `router-hands/secrets/`; `BIND_HOST=127.0.0.1`/`PORT=8788`; synology-parity Tier-A tools (`disk_usage`/`performance`/`pending_updates`/`internet_exposure`) + gated `reboot_router`; `run()` **on by default** (`ROUTER_ENABLE_RUN=false` to disable; router denylist also closes indirect reboot paths so `reboot_router` is the only intended one); lifecycle `mage-hands-router-relay-{up,down}`; `relay.sh router1 up\|down` (SSHes to kappa, not the router) |
 
 **Status (2026-05-22):** both NAS boxes on Tailscale **1.98.2**; per-box DSM Task Scheduler jobs
 active — idle-watchdog (every 5 min) and tailscale-update (weekly); relays **off by default**.
@@ -156,7 +157,7 @@ read-write/writeback RAID1 cache fronting `volume_1` — write-hit ~64% (useful)
 (sequential media I/O bypasses by design). How to inspect it: [docs/maintenance.md](docs/maintenance.md)
 *"Checking SSD cache health, wear & effectiveness"* (the wear data is in `/run/synostorage/disks/`,
 **not** `smartctl -d nvme`, which the M.2-SATA cache devices reject).
-`router-hands` (`router1`) is **code-complete and tested but not yet deployed** — its relay runs on
+`router-hands` (`router1`) is **deployed & operational (2026-06-16)** — its relay runs on
 `kappa` and reaches the ASUS Merlin router over SSH; deploy per
 [router-hands/README.md](router-hands/README.md) (provision the SSH key + `TS_AUTHKEY` on kappa,
 then confirm the bring-up's `SSH egress: PASS`). It now has synology-parity Tier-A tools
@@ -182,6 +183,18 @@ undeployed. 129 unit tests green.
 open a new Claude session (tools auto-load as `mcp__<name>__*`; read-only auto-runs, mutation/exec
 prompt), do the work, then `~/.config/mage-hands/relay.sh <name> down`. See
 [docs/getting-started.md](docs/getting-started.md) and [docs/maintenance.md](docs/maintenance.md).
+
+**Status (2026-06-16):** `router1` (router-hands) is **deployed & operational** — used it this
+session to add a Merlin **dnsmasq local-DNS record** (`cwa.klab-alpha.direct.quickconnect.to` →
+alpha `.247`) so the LAN resolves CWA's Kobo-sync host. Via **alpha** (synology-hands) configured
+**Kobo sync** for the book stack: alpha runs **Calibre-Web-Automated** (`:8083`) + **shelfmark**
+(`:8084`) + Audiobookshelf (`:13378`) — the **home-infra runbook** is the service source-of-truth.
+CWA is fronted by a **manual nginx SNI vhost** (`/usr/local/etc/nginx/sites-enabled/cwa-kobo.conf`,
+wildcard QuickConnect cert + raised `proxy_buffer_size`) because the DSM
+`SYNO.Core.AppPortal.ReverseProxy` `create` API rejected the entry (err **4151**) — note a DSM OS
+update can regenerate nginx and wipe that vhost. Also disabled CWA's per-user **auto-send** (it had
+been pushing every ingested book to a Kindle). The four Mac shortcuts (`start-kappa-relay`,
+`start-alpha-relay`, `start-router-relay`, `start-all-relays`) verified working.
 
 ## Important Patterns
 
