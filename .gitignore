@@ -12,3 +12,6 @@ build/
 **/logs/
 **/secrets/
 **/ts-state/
+
+# luxe gitkit tooling (local, not part of the project)
+.luxe/
