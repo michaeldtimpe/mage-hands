@@ -81,7 +81,7 @@ mage-hands/
 ├── synology-hands/               # appliance #1: Synology NAS
 │   ├── server.py                 # Tier A/B tools; registers read_file + run()
 │   ├── Dockerfile  compose.yaml  .env.example
-│   ├── scripts/                  # relay-up/down · idle-watchdog · tailscale-update · install-sudo · smoke-test.py
+│   ├── scripts/                  # relay-up/down · idle-watchdog · tailscale-update · plex-update · watchtower-update · install-sudo · smoke-test.py
 │   └── README.md
 ├── router-hands/                 # appliance #2: ASUS Merlin router (SSHRunner + Tailscale sidecar)
 │   ├── server.py                 # Tier A/B router tools; SSHRunner; read_file + run() (on by default)
@@ -91,13 +91,16 @@ mage-hands/
 ├── net-monitor/                  # standalone (NOT an MCP relay): always-on internet connectivity logger on kappa
 │   ├── compose.yaml  monitor.sh  summary.sh
 │   └── README.md
+├── router-monitor/               # standalone (NOT an MCP relay): always-on router telemetry + syslog-mirror logger on kappa
+│   ├── compose.yaml  monitor.sh  summary.sh  Dockerfile
+│   └── README.md
 ├── docs/
 │   ├── getting-started.md        # use a deployed relay from a fresh Claude session
 │   ├── deploy.md                 # deploy/operate a new appliance
 │   └── maintenance.md            # update Tailscale, scheduled tasks, troubleshooting
 ├── ARCHITECTURE.md  AGENTS.md  CLAUDE.md  lessons.md
 ├── CONTRIBUTING.md               # how to contribute + security-first ground rules
-├── LICENSE                       # MIT
+├── LICENSE                       # Apache-2.0
 └── README.md
 ```
 

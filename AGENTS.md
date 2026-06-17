@@ -157,6 +157,20 @@ read-write/writeback RAID1 cache fronting `volume_1` — write-hit ~64% (useful)
 (sequential media I/O bypasses by design). How to inspect it: [docs/maintenance.md](docs/maintenance.md)
 *"Checking SSD cache health, wear & effectiveness"* (the wear data is in `/run/synostorage/disks/`,
 **not** `smartctl -d nvme`, which the M.2-SATA cache devices reject).
+
+**Auto-updates reviewed + telemetry added (2026-06-16):** the alpha DSM Task Scheduler update
+scripts are **verified working** — `tailscale-update.sh` (**id 15**, weekly Tue 00:00 → 1.98.4) and
+`plex-update.sh` (**id 18**, weekly Wed 12:00 → 1.43.2.10687), both bypassing Package Center.
+Container auto-updates were re-architected: the disabled persistent `watchtower-compose` Container
+Manager project was **removed**, replaced by `synology-hands/scripts/watchtower-update.sh` — a
+one-shot `docker run --rm … watchtower --run-once` registered as **id 20** (weekly Tue 12:00; the
+script gates to the **first Tuesday** of the month). `WATCHTOWER_LABEL_ENABLE=false`, so one pass
+updates every registry-image container (shelfmark, calibre-web-automated, the *arr stack), then
+exits and self-removes. On **kappa**, **`router-monitor`** was deployed — an always-on logger that
+SSHes to `router1` (reusing the router-hands key, read-only) writing per-day health JSONL +
+edge-events **and mirroring the router's `/jffs/syslog.log` off-box before its daily rotation
+discards it** (the spring firmware episode left no trail); it complements `net-monitor`
+(internet-path quality). See [router-monitor/README.md](router-monitor/README.md).
 `router-hands` (`router1`) is **deployed & operational (2026-06-16)** — its relay runs on
 `kappa` and reaches the ASUS Merlin router over SSH; deploy per
 [router-hands/README.md](router-hands/README.md) (provision the SSH key + `TS_AUTHKEY` on kappa,

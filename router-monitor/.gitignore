@@ -1,0 +1,7 @@
+# Local router-specific overrides (ROUTER_USER, etc.) — never committed.
+.env
+# Logged telemetry — never committed (can be large; per-day health/events/syslog).
+data/
+# Defensive: never commit any local secret material if someone drops it here.
+secrets/
+*.key

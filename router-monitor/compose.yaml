@@ -1,0 +1,42 @@
+# Always-on ASUS/Merlin router telemetry logger on kappa. Complements net-monitor (which measures
+# the internet path); this records the router's INTERNAL state and mirrors its syslog off-box.
+#
+# It SSHes to the router REUSING the router-hands key+known_hosts (mounted read-only from the
+# sibling router-hands deploy) — nothing new to provision, host key already pinned. The relay and
+# this logger can hold the same key; revoke/rotate by swapping the router's authorized_keys entry.
+#
+# Deploy on kappa:  sudo docker compose -f /volume1/docker/mage-hands/router-monitor/compose.yaml up -d --build
+# Read the log:     tail -F /volume1/docker/mage-hands/router-monitor/data/health-$(date -u +%F).jsonl
+#                   tail -F /volume1/docker/mage-hands/router-monitor/data/syslog-$(date -u +%F).log
+# Quick summary:    sudo docker exec router-monitor sh /app/summary.sh
+services:
+  router-monitor:
+    build: .                                  # Dockerfile adds openssh-client + curl
+    image: router-monitor:local
+    container_name: router-monitor
+    restart: unless-stopped                   # always-on; survives reboot (unlike the relays)
+    command: ["/bin/sh", "/app/monitor.sh"]
+    environment:
+      - HEALTH_EVERY=60                        # health-snapshot cadence (seconds)
+      - SYSLOG_EVERY=120                       # syslog-mirror cadence (seconds; 0 disables mirror)
+      - ROUTER_HOST=${ROUTER_HOST:-192.168.1.1}
+      - ROUTER_USER=${ROUTER_USER:-admin}      # router SSH user; set the REAL value in .env (gitignored, same user as router-hands)
+      - ROUTER_PORT=${ROUTER_PORT:-22}
+      - ROUTER_KEY=/secrets/router_key         # private key path INSIDE the container
+      - KNOWN_HOSTS=/secrets/known_hosts       # pinned router host key INSIDE the container
+      - SYSLOG_PATH=/jffs/syslog.log
+      - RETAIN_DAYS=365                        # per-day logs older than this are pruned
+      # alerting — for-logging-first, so OFF by default; set a destination to enable edge alerts:
+      - ALERT_NTFY_URL=                        # e.g. https://ntfy.sh/your-secret-topic
+      - ALERT_WEBHOOK_URL=                     # generic JSON webhook; POSTs {"text":"..."}
+    volumes:
+      - ./monitor.sh:/app/monitor.sh:ro
+      - ./summary.sh:/app/summary.sh:ro
+      # reuse the router-hands SSH secrets (read-only). chmod 600 on the host key is required.
+      - ../router-hands/secrets/router_id_ed25519:/secrets/router_key:ro
+      - ../router-hands/secrets/known_hosts:/secrets/known_hosts:ro
+      - ./data:/data                           # health-*.jsonl / events-*.jsonl / syslog-*.log
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "3"
