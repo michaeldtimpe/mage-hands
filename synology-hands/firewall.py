@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -389,7 +389,9 @@ def register_firewall_tools(mcp, host) -> None:
 
     @mcp.tool()
     def firewall_rules(
-        profile: Annotated[str | None, Field(description="profile name; default = active profile")] = None,
+        profile: Annotated[str | None, Field(
+            description="DSM firewall profile name, e.g. 'default'. Omit for the active profile."
+        )] = None,
     ) -> dict:
         """Tier A — enumerate a profile's rules in the clean webapi form (policy allow/drop,
         source_ip_group all/ip/netmask/iprange/geoip, literal source_ip), plus the iptables the
@@ -499,12 +501,16 @@ def register_firewall_tools(mcp, host) -> None:
                         "self-defined, ports:csv-or-'all', protocol:all|tcp|udp, source_ip_group:"
                         "all|ip|netmask|iprange|geoip, source_ip, name?, enable?}. Same shape "
                         "firewall_rules returns.")],
-        profile: Annotated[str | None, Field(description="profile to write; default = active")] = None,
+        profile: Annotated[str | None, Field(
+            description="DSM firewall profile to write, e.g. 'default'. Omit for the active "
+                        "profile.")] = None,
         management_source: Annotated[
             str, Field(description="LAN source whose SSH/DSM access the guard protects: 'all', an "
-                       "IP, a CIDR, or an a~b range")] = "all",
+                       "IP (e.g. '192.168.1.10'), a CIDR (e.g. '192.168.1.0/24'), or an a~b "
+                       "range")] = "all",
         default_policy: Annotated[
-            str | None, Field(description="optional global default policy override (advanced); "
+            Literal["allow", "drop"] | None,
+            Field(description="optional global default policy override (advanced); "
                               "left as-is when None")] = None,
         override_lockout_guard: Annotated[
             bool, Field(description="DANGEROUS: apply even if the guard says admin access would be "
@@ -520,13 +526,16 @@ def register_firewall_tools(mcp, host) -> None:
         """
         # Validate ALL inputs before any host work, so a bad request refuses with zero host calls.
         if not isinstance(rules, list) or not rules:
-            return {"refused": True, "reason": "rules must be a non-empty list"}
+            return {"refused": True, "parameter": "rules",
+                    "reason": "'rules' must be a non-empty list"}
         problems = {i: errs for i, r in enumerate(rules) if (errs := validate_rule(r))}
         if problems:
-            return {"refused": True, "reason": "invalid rule(s)", "problems": problems}
+            return {"refused": True, "parameter": "rules",
+                    "reason": "'rules' contains invalid rule(s); see problems (indexed by rule "
+                              "position)", "problems": problems}
         if default_policy is not None and default_policy not in POLICIES:
-            return {"refused": True,
-                    "reason": f"default_policy must be one of {sorted(POLICIES)} "
+            return {"refused": True, "parameter": "default_policy",
+                    "reason": f"'default_policy' must be one of {sorted(POLICIES)} "
                               f"(got {default_policy!r})"}
 
         status = _status_core()

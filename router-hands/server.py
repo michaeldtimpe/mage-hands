@@ -19,6 +19,9 @@ import shlex
 import subprocess
 import sys
 import time
+from typing import Annotated, Literal, get_args
+
+from pydantic import Field
 
 from mage_hands_core import (
     Config,
@@ -104,12 +107,16 @@ ROUTER_DENY_EXTRA = [
 ]
 
 # Tier-B service allowlist: name → fixed verb `service restart_<name>`. Keeps the tool from being
-# used for arbitrary `service` verbs (start_*/stop_*/reboot/firmware helpers).
-ALLOWED_SERVICES = {
+# used for arbitrary `service` verbs (start_*/stop_*/reboot/firmware helpers). Declared as a
+# Literal so the fixed set lands in the tool schema as an enum (the model sees the valid values
+# up front instead of discovering them from a refusal); ALLOWED_SERVICES is derived from it and
+# stays the runtime backstop.
+ServiceName = Literal[
     "dnsmasq", "wireless", "firewall", "wan", "httpd", "net", "samba", "nasapps",
     "vpnclient1", "vpnclient2", "vpnclient3", "vpnclient4", "vpnclient5",
     "vpnserver1", "vpnserver2", "wgc", "wgs",
-}
+]
+ALLOWED_SERVICES = frozenset(get_args(ServiceName))
 
 # internet_exposure() reads ONLY these nvram keys, batched into one ssh round-trip. This frozen
 # allowlist IS the security boundary: we never run `nvram show` (it would dump http_passwd,
@@ -268,7 +275,12 @@ def main() -> None:
         return _performance(host, out, ifaces)
 
     @mcp.tool()
-    def pending_updates(check: bool = False) -> dict:
+    def pending_updates(
+        check: Annotated[bool, Field(
+            description="true = run the ASUS update-check helper first (phones home, ~30-120s) "
+                        "then re-read; false (default) = report last-known nvram state only."
+        )] = False,
+    ) -> dict:
         """Tier A — Merlin firmware update posture from nvram webs_state_* (last-known check) +
         current firmware + AiProtection signatures. check=True runs /usr/sbin/webs_update.sh first
         (phones home to ASUS, slow) then re-reads. Empty nvram = 'unknown', NEVER 'up to date';
@@ -286,25 +298,37 @@ def main() -> None:
 
     # ---- Tier B: controlled mutation (narrow, audited) ----
     @mcp.tool(annotations={"destructiveHint": True})
-    def restart_service(name: str) -> dict:
-        """Restart a router service via Merlin `service restart_<name>` (verb is fixed to
+    def restart_service(
+        name: Annotated[ServiceName, Field(
+            description="Router service to restart, e.g. 'dnsmasq'. Only the enumerated vetted "
+                        "services are accepted."
+        )],
+    ) -> dict:
+        """Tier B — restart a router service via Merlin `service restart_<name>` (verb is fixed to
         restart_<name>, NOT `<name> restart`). Restricted to a vetted allowlist so the tool can't
         invoke arbitrary `service` verbs. Restarting wan/wireless/firewall briefly drops
-        connectivity (the SSH transport may blip → an indeterminate result; re-inspect)."""
+        connectivity (the SSH transport may blip → an indeterminate result; re-inspect).
+        Returns {rc, stdout, stderr}."""
         if name not in ALLOWED_SERVICES:
-            return {"refused": True, "reason": f"service {name!r} not allowed",
+            return {"refused": True, "parameter": "name",
+                    "reason": f"'name' {name!r} is not an allowed service",
                     "allowed": sorted(ALLOWED_SERVICES)}
         return host.run(["service", f"restart_{name}"])
 
     @mcp.tool(annotations={"destructiveHint": True})
-    def reboot_router(confirm: bool = False) -> dict:
+    def reboot_router(
+        confirm: Annotated[bool, Field(
+            description="Must be explicitly true to reboot. false (default) = refuse and "
+                        "describe what would happen."
+        )] = False,
+    ) -> dict:
         """Reboot the router (Merlin `reboot`, orderly — commits nvram/syncs jffs). DESTRUCTIVE:
         drops ALL connectivity for ~1-2 min. Requires confirm=True. The SSH transport WILL drop, so
         a transport_error/timeout result here is EXPECTED success, NOT a failure — re-check
         system_info in ~2 min. This is the only DIRECTLY-intended reboot path (run() denies the
         indirect ones: service reboot, init 6, busybox reboot, rc reboot, killall rc)."""
         if not confirm:
-            return {"refused": True, "would_run": "reboot",
+            return {"refused": True, "parameter": "confirm", "would_run": "reboot",
                     "reason": "set confirm=true to reboot; SSH WILL drop and the router is down ~1-2 min"}
         try:
             r = host.run(["reboot"], timeout=22)

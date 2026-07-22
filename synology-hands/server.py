@@ -9,6 +9,9 @@ comes from mage_hands_core; this module just registers Synology-specific tools.
 from __future__ import annotations
 
 import sys
+from typing import Annotated
+
+from pydantic import Field
 
 from mage_hands_core import (
     Config,
@@ -85,15 +88,30 @@ def main() -> None:
         return host.run(["docker", "ps", "-a", "--format", "{{json .}}"])
 
     @mcp.tool()
-    def container_logs(name: str, tail: int = 100) -> dict:
-        """Tail logs for a container by name."""
+    def container_logs(
+        name: Annotated[str, Field(
+            description="Exact Docker container name as shown by list_containers, "
+                        "e.g. 'calibre-web'."
+        )],
+        tail: Annotated[int, Field(
+            description="Number of trailing log lines to return, e.g. 200. Default 100.", ge=1
+        )] = 100,
+    ) -> dict:
+        """Tail logs for a container by name. Use list_containers first to find the exact name.
+        Returns {rc, stdout, stderr} from `docker logs`."""
         return host.run(["docker", "logs", "--tail", str(tail), name])
 
     @mcp.tool()
-    def service_status(name: str) -> dict:
+    def service_status(
+        name: Annotated[str, Field(
+            description="DSM service name as known to synosystemctl, e.g. 'nmbd' or "
+                        "'pkgctl-Tailscale'."
+        )],
+    ) -> dict:
         """Active status of a DSM service (synosystemctl get-active-status <name>).
 
         DSM 7 replaced synoservicectl with synosystemctl; the old binary 404s on 7.x.
+        Returns {rc, stdout, stderr}; stdout is the status token (e.g. 'active').
         """
         return host.run(["synosystemctl", "get-active-status", name])
 
@@ -138,15 +156,28 @@ def main() -> None:
 
     # ---- Tier B: controlled mutation (narrow, audited) ----
     @mcp.tool(annotations={"destructiveHint": True})
-    def restart_container(name: str) -> dict:
-        """Restart a single container by name."""
+    def restart_container(
+        name: Annotated[str, Field(
+            description="Exact Docker container name as shown by list_containers, "
+                        "e.g. 'calibre-web'."
+        )],
+    ) -> dict:
+        """Tier B — restart a single container by name (docker restart). Briefly interrupts the
+        container's service. Returns {rc, stdout, stderr}; stdout echoes the name on success."""
         return host.run(["docker", "restart", name])
 
     @mcp.tool(annotations={"destructiveHint": True})
-    def restart_service(name: str) -> dict:
-        """Restart a DSM service (synosystemctl reload-or-restart <name>).
+    def restart_service(
+        name: Annotated[str, Field(
+            description="DSM service name as known to synosystemctl, e.g. 'nmbd'. Check with "
+                        "service_status first."
+        )],
+    ) -> dict:
+        """Tier B — restart a DSM service (synosystemctl reload-or-restart <name>). Briefly
+        interrupts that service.
 
         DSM 7 replaced synoservicectl with synosystemctl; the old binary 404s on 7.x.
+        Returns {rc, stdout, stderr}.
         """
         return host.run(["synosystemctl", "reload-or-restart", name])
 

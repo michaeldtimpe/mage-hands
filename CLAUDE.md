@@ -44,6 +44,11 @@ idle; bring it back up.
   `claude mcp add` — keep that out of backups.
 - **The security model is isolation + auth + ephemerality + audit, not sandboxing.** A running
   relay is root on its host by design. Don't add capabilities that assume containment.
+- **New/changed tools follow the MCP tool-design checklist** in
+  [AGENTS.md](AGENTS.md#tool-design-checklist-mcp-hygiene--apply-to-every-new-tool): every
+  parameter documented with format + example, docstrings say what/when/returns, fixed value sets
+  are schema enums (`Literal`), errors name the offending parameter, naming stays consistent with
+  the existing catalog.
 - **Put cross-cutting logic in `common/`, not in an appliance.** Auth, audit, the `run()` gate,
   and the read policy are inherited; an appliance should only add a Runner + tools.
 - **The relay binds loopback only**; `tailscale serve` is the only ingress. Never bind a

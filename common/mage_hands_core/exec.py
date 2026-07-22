@@ -294,22 +294,30 @@ def register_run_tool(
 
     @mcp.tool(annotations={"destructiveHint": True})
     def run(
-        command: Annotated[str, Field(description="shell command, runs as ROOT on the target host")],
+        command: Annotated[str, Field(
+            description="POSIX shell command line, executed via `sh -c` as ROOT on the target "
+                        "host, e.g. 'docker ps --format \"{{.Names}}\"'. Must be byte-identical "
+                        "between the dry-run call and the exec_token replay."
+        )],
         exec_token: Annotated[
             str | None,
-            Field(description="replay token from a prior dry-run; required to execute"),
+            Field(description="One-time token returned by the prior dry-run call (the "
+                              "'exec_token' field, an opaque url-safe string). Omit to dry-run; "
+                              "pass it back with the identical command to execute."),
         ] = None,
         max_bytes: Annotated[
             int | None,
-            Field(description="optional cap on returned stdout/stderr; only NARROWS the server "
-                              "cap, never raises it"),
+            Field(description="Optional byte cap on returned stdout/stderr, e.g. 4096. Only "
+                              "NARROWS the server cap, never raises it; omit for the default."),
         ] = None,
     ) -> dict:
-        """Tier C — arbitrary root command on the host.
+        """Tier C — arbitrary root command on the host. Last resort: prefer a dedicated Tier-A
+        inspection tool or read_file when one covers the need.
 
         Call once WITHOUT exec_token to get a dry-run preview plus a one-time token, then call
         again replaying that exact token (same command) to execute. Catastrophic patterns are
-        refused outright.
+        refused outright. Returns {dry_run, would_run, exec_token, ttl_seconds} on the first
+        call and {rc, stdout, stderr} (truncated at the output cap) on execution.
         """
         # GC expired dry-run tokens — otherwise un-replayed dry-runs accumulate forever.
         # Cardinality stays tiny (one entry per un-replayed dry-run in an ephemeral, mostly
@@ -319,7 +327,12 @@ def register_run_tool(
             pending.pop(tok, None)
 
         if any(p.search(command) for p in deny):
-            return {"refused": True, "reason": "matches catastrophic-pattern denylist"}
+            return {
+                "refused": True,
+                "parameter": "command",
+                "reason": "'command' matches the catastrophic-pattern denylist (destructive/"
+                          "availability operation); it will not run even with an exec_token",
+            }
 
         digest = hashlib.sha256(command.encode()).hexdigest()
 
@@ -342,7 +355,9 @@ def register_run_tool(
         ):
             return {
                 "refused": True,
-                "reason": "invalid/expired exec_token or command changed; request a fresh dry-run",
+                "parameter": "exec_token",
+                "reason": "'exec_token' is invalid/expired, or 'command' differs from the "
+                          "dry-run; call run() again without exec_token for a fresh dry-run",
             }
 
         # Per-call cap can only narrow the server cap, never exceed it.

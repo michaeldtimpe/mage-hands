@@ -31,15 +31,53 @@ and a forensic audit log.
 Register a function on the `mcp` returned by `build_server()`:
 ```python
 @mcp.tool()                                   # Tier A (read-only)
-def smart_attributes(device: str) -> dict:
-    """Full SMART attributes for a disk."""
+def smart_attributes(
+    device: Annotated[str, Field(
+        description="Block device path from storage_health's scan, e.g. '/dev/sata1'."
+    )],
+) -> dict:
+    """Full SMART attributes for one disk (smartctl -A). Use storage_health first to list
+    devices. Returns {rc, stdout, stderr}."""
     return host.run(["smartctl", "-A", device])
 
 @mcp.tool(annotations={"destructiveHint": True})   # Tier B (mutation)
-def stop_container(name: str) -> dict:
+def stop_container(
+    name: Annotated[str, Field(
+        description="Exact container name as shown by list_containers, e.g. 'calibre-web'."
+    )],
+) -> dict:
+    """Tier B — stop a container (docker stop). Returns {rc, stdout, stderr}."""
     return host.run(["docker", "stop", name])
 ```
 Keep raw arbitrary execution in the single gated `run()` — don't add ad-hoc shell-exec tools.
+
+### Tool design checklist (MCP hygiene — apply to EVERY new tool)
+Distilled from live agent-vs-server testing (https://tengli.dev/posts/mcp-servers-failing-agents.html):
+the dominant real-world failure is undocumented parameters, and fuzzy catalogs measurably degrade
+tool selection *and* the model's ability to refuse out-of-scope work.
+
+1. **Every parameter gets a `Field(description=...)`** stating meaning, format, and one concrete
+   example value (`"e.g. 'calibre-web'"`). Bare `name: str` params are the #1 failure mode in
+   production MCP servers — schemas look fine, models still guess.
+2. **Docstring = what it does + when to use it + what it returns.** Include cross-tool routing
+   where relevant ("use list_containers first to find the name").
+3. **Fixed value sets are `Literal[...]`/enum in the schema**, not prose. Derive the runtime
+   allowlist from the Literal (see `ServiceName` in router-hands) so schema and check can't drift;
+   keep the runtime check as a backstop.
+4. **Errors must name the offending parameter** and how to fix it, so the model self-corrects in
+   one turn: refusal dicts carry `"parameter": "<name>"` + a reason quoting the bad value;
+   policy exceptions name `'path'`, the value, and the allowed roots.
+5. **Naming: one convention, no near-synonyms.** Match the existing catalog (`<object>_<facet>`
+   for inspection: `firewall_status`, `wan_status`; `verb_object` for mutation: `restart_service`,
+   `reboot_router`). Never add a tool whose name could be confused with an existing one
+   (`extract` vs `scrape` is the canonical collision) — extend the existing tool instead.
+6. **Small catalog, sharp scope.** Every tool's schema is serialized into every request; prefer
+   one well-documented tool with a parameter over three overlapping ones. If a tool is
+   out-of-scope for a task, its description should make that obvious enough that the model
+   declines rather than force-fits.
+7. **Declare `required` honestly** — FastMCP derives it from defaults, so don't give a parameter
+   a default it shouldn't have (e.g. `confirm: bool = False` is right; a defaulted target name
+   is not).
 
 ### Adding a new appliance
 The core carries all security logic; an appliance supplies a **Runner** + **tools**:

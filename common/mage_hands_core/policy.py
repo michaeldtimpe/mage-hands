@@ -27,15 +27,26 @@ class PathPolicy:
         self.deny = [d.rstrip("/") for d in (deny or [])]
 
     def check(self, host_abs: str) -> str:
-        """Validate a host-absolute path against allow/deny. Returns the normalized path."""
+        """Validate a host-absolute path against allow/deny. Returns the normalized path.
+
+        Error messages name the offending parameter ('path'), the value, and the constraint so
+        a calling agent can self-correct in one turn.
+        """
         if not host_abs.startswith("/"):
-            raise ValueError("absolute path required")
+            raise ValueError(
+                f"'path' must be an absolute host path starting with '/' (got {host_abs!r})"
+            )
         norm = os.path.normpath(host_abs)
         for d in self.deny:
             if norm == d or norm.startswith(d + "/"):
-                raise PermissionError("denied by read policy")
+                raise PermissionError(
+                    f"'path' {norm!r} is denied by the read policy (secret/sensitive location); "
+                    f"it cannot be read via read_file"
+                )
         if not any(norm == a or norm.startswith(a + "/") for a in self.allow):
-            raise PermissionError("path not in allowed read roots")
+            raise PermissionError(
+                f"'path' {norm!r} is not under an allowed read root; allowed roots: {self.allow}"
+            )
         return norm
 
 
@@ -48,7 +59,7 @@ def fs_reader(
     def read(host_abs: str) -> str:
         target = (base / host_abs.lstrip("/")).resolve()  # join THEN resolve symlinks
         if target != base and base not in target.parents:
-            raise ValueError("path traversal blocked")
+            raise ValueError(f"path traversal blocked: 'path' {host_abs!r} resolves outside the host mount")
         if policy is not None:
             # A RELATIVE symlink under an allowed root can resolve elsewhere UNDER the prefix
             # (e.g. /volume1/link -> ../../etc/shadow lands on /host/etc/shadow), passing the
@@ -90,9 +101,18 @@ def runner_reader(runner, max_bytes: int = 200_000) -> Callable[[str], str]:
 def register_read_file(mcp, policy: PathPolicy, reader: Callable[[str], str]):
     @mcp.tool()
     def read_file(
-        path: Annotated[str, Field(description="absolute host path, e.g. /volume1/docker/app/.env")]
+        path: Annotated[str, Field(
+            description="Absolute host path of the text file to read (starts with '/'), "
+                        "e.g. '/volume1/docker/app/.env'. Must be under an allowed read root; "
+                        "secret paths are denied."
+        )]
     ) -> dict:
-        """Tier A — read a text file, restricted to allowed roots (secret paths are denied)."""
+        """Tier A — read a text file from the target host.
+
+        Use for inspecting configs/logs instead of run(). Restricted to allowed roots (secret
+        paths are denied; a policy error lists the allowed roots). Returns {path, content};
+        content is truncated at the read cap.
+        """
         norm = policy.check(path)
         return {"path": norm, "content": reader(norm)}
 
