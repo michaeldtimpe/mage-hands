@@ -29,7 +29,10 @@ asked to change before anything else is reviewed.
    belongs in core.
 4. **Keep raw execution behind the single gated `run()`.** Don't add ad-hoc shell-exec tools that
    bypass the dry-run → one-time-`exec_token` replay gate.
-5. **Denylist and read policy: append, don't replace, and add tests.** `DEFAULT_DENY`
+5. **New/changed tools follow the tool design checklist** in AGENTS.md (§ *Tool design checklist*):
+   every parameter documented with format + a concrete example, docstrings state what/when/returns,
+   fixed value sets are schema enums (`Literal`), and errors name the offending parameter.
+6. **Denylist and read policy: append, don't replace, and add tests.** `DEFAULT_DENY`
    (`common/mage_hands_core/exec.py`) and the `PathPolicy` deny list are safety backstops. If you
    change them, add unit tests covering the new patterns (see `common/tests/`), and prefer composing
    via `RUN_DENY_EXTRA` / `READ_*_EXTRA` over editing the defaults.
