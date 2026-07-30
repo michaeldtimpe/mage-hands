@@ -85,7 +85,9 @@ def main() -> None:
     @mcp.tool()
     def list_containers() -> dict:
         """All Docker / Container Manager containers (docker ps -a)."""
-        return host.run(["docker", "ps", "-a", "--format", "{{json .}}"])
+        # The Docker daemon on the weaker boxes (DS718+) intermittently takes
+        # >60s to answer `ps` under load (observed 2026-07-30); extended timeout.
+        return host.run(["docker", "ps", "-a", "--format", "{{json .}}"], timeout=120)
 
     @mcp.tool()
     def container_logs(
@@ -99,7 +101,8 @@ def main() -> None:
     ) -> dict:
         """Tail logs for a container by name. Use list_containers first to find the exact name.
         Returns {rc, stdout, stderr} from `docker logs`."""
-        return host.run(["docker", "logs", "--tail", str(tail), name])
+        # Same busy-daemon allowance as list_containers.
+        return host.run(["docker", "logs", "--tail", str(tail), name], timeout=120)
 
     @mcp.tool()
     def service_status(
