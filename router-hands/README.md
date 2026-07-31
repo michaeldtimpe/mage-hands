@@ -84,14 +84,14 @@ accordingly:
 
 2. **Pre-create the runtime dirs on kappa** (gitignored; not in the repo) and place the secrets:
    ```sh
-   ssh <admin>@kappa.local '
+   ssh <admin>@kappa.<tailnet>.ts.net '
      B=/volume1/docker/mage-hands/router-hands
      sudo install -d -m 700 -o root -g root "$B/logs"
      install -d "$B/ts-state" "$B/secrets"'
-   scp ~/.ssh/router_id_ed25519 <admin>@kappa.local:/volume1/docker/mage-hands/router-hands/secrets/
-   ssh <admin>@kappa.local 'chmod 600 /volume1/docker/mage-hands/router-hands/secrets/router_id_ed25519'
+   scp ~/.ssh/router_id_ed25519 <admin>@kappa.<tailnet>.ts.net:/volume1/docker/mage-hands/router-hands/secrets/
+   ssh <admin>@kappa.<tailnet>.ts.net 'chmod 600 /volume1/docker/mage-hands/router-hands/secrets/router_id_ed25519'
    # Pin the router host key (verify the fingerprint against the router WebUI before trusting it):
-   ssh <admin>@kappa.local 'ssh-keyscan -p 22 <router> > /volume1/docker/mage-hands/router-hands/secrets/known_hosts'
+   ssh <admin>@kappa.<tailnet>.ts.net 'ssh-keyscan -p 22 <router> > /volume1/docker/mage-hands/router-hands/secrets/known_hosts'
    ```
 
 3. **Write `.env` on kappa** (`cp .env.example .env`, chmod 600). Fill `RELAY_TOKEN`
@@ -103,7 +103,7 @@ accordingly:
 
 4. **Bring it up** (builds the relay, pulls the pinned Tailscale image, starts both):
    ```sh
-   ssh <admin>@kappa.local 'sudo sh /volume1/docker/mage-hands/router-hands/scripts/relay-up.sh'
+   ssh <admin>@kappa.<tailnet>.ts.net 'sudo sh /volume1/docker/mage-hands/router-hands/scripts/relay-up.sh'
    ```
    It waits for the relay to be healthy, prints the sidecar's tailnet status, and runs a
    **SSH-egress PASS/FAIL** check (proves the relay can reach the router — see the egress note
@@ -111,7 +111,7 @@ accordingly:
 
 5. **Smoke-test from inside the container** (8788 is on the sidecar's netns loopback, not kappa's):
    ```sh
-   ssh <admin>@kappa.local '
+   ssh <admin>@kappa.<tailnet>.ts.net '
      cd /volume1/docker/mage-hands/router-hands
      TOK=$(grep ^RELAY_TOKEN= .env | cut -d= -f2-)
      sudo docker exec -i -e RELAY_TOKEN="$TOK" router-hands python - < scripts/smoke-test.py'
@@ -123,7 +123,7 @@ accordingly:
      https://router1.<tailnet>.ts.net/mcp \
      --header "Authorization: Bearer $(cat ~/.config/nas-relay/router1.token)"
    # ask Claude for `system_info`, then:
-   ssh <admin>@kappa.local 'sudo tail -1 /volume1/docker/mage-hands/router-hands/logs/audit.jsonl'  # -> "user": ...
+   ssh <admin>@kappa.<tailnet>.ts.net 'sudo tail -1 /volume1/docker/mage-hands/router-hands/logs/audit.jsonl'  # -> "user": ...
    ```
    Set `ALLOWED_USERS` to that Tailscale login in `.env` and `sudo docker compose up -d --force-recreate`.
 
@@ -164,7 +164,7 @@ all-`unknown`. See [lessons.md](../lessons.md) and [docs/maintenance.md](../docs
 ## Teardown
 
 ```sh
-ssh <admin>@kappa.local 'sudo /usr/local/sbin/mage-hands-router-relay-down'   # or relay.sh router1 down
+ssh <admin>@kappa.<tailnet>.ts.net 'sudo /usr/local/sbin/mage-hands-router-relay-down'   # or relay.sh router1 down
 ```
 Stops the relay **and** the sidecar, so serve and the `router1` node disappear with it.
 

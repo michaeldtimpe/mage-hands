@@ -162,7 +162,7 @@ Every tool call is logged on the NAS at
 per call with the caller identity, tool, args, status, and timing:
 
 ```sh
-ssh magehands@kappa.local 'sudo tail -5 /volume1/docker/mage-hands/synology-hands/logs/audit.jsonl'
+ssh magehands@kappa.<tailnet>.ts.net 'sudo tail -5 /volume1/docker/mage-hands/synology-hands/logs/audit.jsonl'
 ```
 
 ## Troubleshooting
