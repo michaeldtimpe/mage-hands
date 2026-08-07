@@ -248,6 +248,24 @@ update can regenerate nginx and wipe that vhost. Also disabled CWA's per-user **
 been pushing every ingested book to a Kindle). The four Mac shortcuts (`start-kappa-relay`,
 `start-alpha-relay`, `start-router-relay`, `start-all-relays`) verified working.
 
+**Status (2026-08-07): Transmission peer port opened end-to-end.** Transmission on alpha
+(host networking, fixed peer port **51413** TCP+UDP, DHT/PEX/LPD deliberately off) was not
+reachable from the internet — `transmission-remote -pt` said "Port is open: No" — because **two
+independent layers** blocked inbound peers: (1) **router1** had port forwarding disabled outright
+(`vts_enable_x=0`, empty `vts_rulelist`; UPnP also off) and (2) **alpha's DSM firewall** (now
+**enabled + enforced**, superseding the "off on both boxes" note in the 2026-05-22 status above)
+default-drops non-LAN/tailnet/docker sources. Fixed via the relays: router1 got
+`vts_rulelist="<Transmission>51413>192.168.1.247>51413>BOTH>"` + `vts_enable_x=1` (`nvram commit`,
+`service restart_firewall`), and alpha got a `transmission-peer` allow rule (51413, any source)
+inserted before the final drop via `firewall_set_rules` (lock-out guard passed). Also removed three
+**stale, inert `filter_wllist` WAN→LAN blocks** referencing devices no longer on the LAN (TCP/UDP
+51413 → `.180`, TCP 8089 → `.123`). Verified: DNAT counters incrementing, inbound public-IP peers
+ESTABLISHED on 51413, and `transmission-remote -pt` → **"Port is open: Yes"**. Note the forward
+hardcodes alpha's IP (`.247`); note also nothing logs *torrent* throughput (net-monitor's `tput` is
+a kappa→Cloudflare WAN speedtest), so judge the effect via Transmission session stats / arr grab
+times, and expect it mainly on sparse swarms and seeding — downloads are config-capped at
+8000 KB/s (`speed-limit-down`) regardless.
+
 ## Important Patterns
 
 - **The relay binds `127.0.0.1:8787` only.** `tailscale serve` (HTTPS :443, tailnet-private)
