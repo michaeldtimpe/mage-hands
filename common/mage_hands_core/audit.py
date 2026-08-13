@@ -19,19 +19,39 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.dependencies import get_http_headers
 
 
+def _is_audit_handler(handler, path: str) -> bool:
+    """True if ``handler`` is our rotating file handler already writing to ``path``."""
+    return (
+        isinstance(handler, RotatingFileHandler)
+        and os.path.abspath(getattr(handler, "baseFilename", "")) == os.path.abspath(path)
+    )
+
+
 def setup_audit(audit_dir: str) -> logging.Logger:
+    """Attach the rotating audit handler for ``audit_dir`` (idempotent).
+
+    The guard here is deliberately specific. An earlier version skipped setup whenever the
+    logger had *any* handler (``if not log.handlers``), which meant a single foreign handler
+    attached to ``mage_hands.audit`` — a debug handler, pytest's log-capture handler — silently
+    suppressed the audit file: calls kept being logged, nothing reached disk, and no error was
+    raised. For a forensic trail, failing open like that is worse than not logging at all.
+    """
     os.makedirs(audit_dir, exist_ok=True)
+    path = os.path.join(audit_dir, "audit.jsonl")
     log = logging.getLogger("mage_hands.audit")
-    if not log.handlers:
-        log.setLevel(logging.INFO)
-        handler = RotatingFileHandler(
-            os.path.join(audit_dir, "audit.jsonl"),
-            maxBytes=10_000_000,
-            backupCount=10,
-        )
+    log.setLevel(logging.INFO)
+
+    if not any(_is_audit_handler(h, path) for h in log.handlers):
+        # Drop any audit handler aimed at a *different* directory so a reconfigure doesn't
+        # keep writing to the old location as well.
+        for h in [h for h in log.handlers if isinstance(h, RotatingFileHandler)]:
+            log.removeHandler(h)
+            h.close()
+        handler = RotatingFileHandler(path, maxBytes=10_000_000, backupCount=10)
         handler.setFormatter(logging.Formatter("%(message)s"))
         log.addHandler(handler)
-        log.propagate = False
+
+    log.propagate = False
     return log
 
 

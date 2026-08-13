@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 
 import pytest
 
@@ -98,6 +99,48 @@ def test_small_args_stay_structured(tmp_path, monkeypatch):
     mw = AuditMiddleware(node_id="t", audit_dir=str(tmp_path))
     _drive(mw, _Ctx(arguments={"path": "/etc/hosts"}))
     assert _last_audit_line(tmp_path)["args"] == {"path": "/etc/hosts"}
+
+
+def test_setup_audit_writes_despite_a_foreign_handler(tmp_path):
+    """A handler someone else attached must not suppress the audit file.
+
+    The old `if not log.handlers` guard skipped creating the file handler whenever anything
+    was already attached to `mage_hands.audit` — pytest's own capture handler was enough to
+    do it — so calls were logged to nowhere with no error. Fail-open on a forensic log.
+    """
+    log = logging.getLogger("mage_hands.audit")
+    log.addHandler(logging.NullHandler())  # stand-in for pytest's LogCaptureHandler
+
+    audit_mod.setup_audit(str(tmp_path))
+    log.info("probe")
+
+    assert (tmp_path / "audit.jsonl").read_text().strip() == "probe"
+
+
+def test_setup_audit_is_idempotent(tmp_path):
+    """Repeat calls must not stack handlers (which would duplicate every audit line)."""
+    log = logging.getLogger("mage_hands.audit")
+    for _ in range(3):
+        audit_mod.setup_audit(str(tmp_path))
+
+    assert sum(isinstance(h, RotatingFileHandler) for h in log.handlers) == 1
+    log.info("once")
+    assert (tmp_path / "audit.jsonl").read_text().count("once") == 1
+
+
+def test_setup_audit_retargets_to_a_new_dir(tmp_path):
+    """Reconfiguring to a new dir must stop writing to the old one."""
+    first, second = tmp_path / "a", tmp_path / "b"
+    log = logging.getLogger("mage_hands.audit")
+
+    audit_mod.setup_audit(str(first))
+    log.info("to-first")
+    audit_mod.setup_audit(str(second))
+    log.info("to-second")
+
+    assert "to-first" in (first / "audit.jsonl").read_text()
+    assert "to-second" not in (first / "audit.jsonl").read_text()
+    assert "to-second" in (second / "audit.jsonl").read_text()
 
 
 def test_activity_touched_before_call(tmp_path, monkeypatch):
