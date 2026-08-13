@@ -480,3 +480,32 @@ back as a tool (`docker ps`, `docker logs`, `docker exec`) without expanding the
 surface area. Sshd's non-interactive PATH is the standard "but it works on my login!" trap on
 appliance OSes — symlink the binary into a PATH-default directory rather than chasing
 `PermitUserEnvironment` (which requires an sshd reload, raising the blast radius).
+
+## A metric that degrades to nonsense is worse than no metric
+
+The `performance` tool computed available memory as
+`mem.get("MemAvailable", mem.get("MemFree", 0))` — the ordinary defensive-fallback idiom. On
+alpha it reported **161 MiB available, 99.0% used** on a box that had 13 GiB free for the asking.
+
+`MemAvailable` entered `/proc/meminfo` in Linux 3.14. DSM 7.3 still ships **kernel 3.10.108**, so
+the field is not merely sometimes-missing, it is *never present* — the fallback fired on every
+call, and `MemFree` ignores reclaimable page cache, which on a NAS is most of RAM. The tool wasn't
+occasionally wrong; on that entire class of host it was wrong 100% of the time, in the alarming
+direction, while looking perfectly plausible.
+
+The cost was diagnostic, not operational. The reading corroborated a *previously true* story —
+the box really had been swap-thrashing — so it kept confirming a fixed problem and masked the
+actual cause of a multi-day disk-churn investigation (Plex butler tasks reading 5.7 TiB). The
+box's own `free -m` had the right answer the whole time.
+
+Fix in `common/mage_hands_core/meminfo.py`: prefer the kernel's `MemAvailable`, and where it is
+absent approximate it (`MemFree + Buffers + Cached - Shmem + SReclaimable`, ~1.8% optimistic vs
+`free`), then **tell the caller which one it got** via `available_estimated`. Kappa's newer kernel
+reports `false`; alpha reports `true`.
+
+**Lesson:** `dict.get(key, fallback)` silently assumes the key is *usually* there. When the
+fallback is semantically different from the real value, verify it's actually a fallback and not
+the only path on your target platform — a `grep -c ^MemAvailable /proc/meminfo` against the real
+box would have caught this at authoring time. And when a number is derived rather than measured,
+put that fact *in the payload*; an operator can discount an estimate, but cannot discount a
+figure that doesn't admit it's one.

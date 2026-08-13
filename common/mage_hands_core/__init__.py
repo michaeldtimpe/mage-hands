@@ -20,6 +20,7 @@ from .server import build_server, run_server
 from .exec import ShellRunner, NsenterRunner, SSHRunner, register_run_tool, DEFAULT_DENY
 from .policy import PathPolicy, fs_reader, runner_reader, register_read_file
 from .audit import AuditMiddleware, setup_audit, touch_activity, truncate
+from .meminfo import parse_meminfo, available_kb, memory_stats
 
 __all__ = [
     "Config",
@@ -38,4 +39,7 @@ __all__ = [
     "setup_audit",
     "touch_activity",
     "truncate",
+    "parse_meminfo",
+    "available_kb",
+    "memory_stats",
 ]
