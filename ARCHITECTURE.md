@@ -60,6 +60,7 @@ the Mac; the relay only routes structured tool calls to the host and returns JSO
 | `audit.py` | `setup_audit()` (rotating JSONL), `touch_activity()` (atomic), `AuditMiddleware` (identity allowlist + forensic log), `truncate()`. |
 | `exec.py` | `Runner` protocol, `ShellRunner` / `NsenterRunner` / `SSHRunner`, `DEFAULT_DENY`, `register_run_tool()` (the gated Tier-C `run()`). |
 | `policy.py` | `PathPolicy` (allow/deny + lexical normalize), `fs_reader()` (join-then-resolve traversal guard), `runner_reader()` (read via a Runner — for SSH/non-mounted targets), `register_read_file()`. |
+| `meminfo.py` | `memory_stats()` — the `performance` memory block. Prefers the kernel's `MemAvailable`; approximates it on pre-3.14 kernels (DSM ships 3.10, where the field is absent) and marks the result `available_estimated`. |
 | `server.py` | `build_server()` (FastMCP + auth + lifespan flush + audit middleware), `run_server()`. |
 
 An appliance (`synology-hands/server.py`) is then just: build the server, choose a Runner,

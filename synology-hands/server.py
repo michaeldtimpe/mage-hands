@@ -20,6 +20,7 @@ from mage_hands_core import (
     PathPolicy,
     build_server,
     fs_reader,
+    memory_stats,
     register_read_file,
     register_run_tool,
     run_server,
@@ -346,32 +347,9 @@ def _performance(host, out) -> dict:
     else:
         res["load"] = "unavailable"
 
-    # memory + swap
-    mem = {}
-    for line in out(host.run(["cat", "/proc/meminfo"])).splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and parts[0].rstrip(":") in (
-            "MemTotal", "MemAvailable", "MemFree", "SwapTotal", "SwapFree"
-        ):
-            try:
-                mem[parts[0].rstrip(":")] = int(parts[1])  # kB
-            except ValueError:
-                pass
-    if mem.get("MemTotal"):
-        used_pct = round(100 * (1 - mem.get("MemAvailable", mem.get("MemFree", 0)) / mem["MemTotal"]), 1)
-        sw_total = mem.get("SwapTotal", 0)
-        sw_used = sw_total - mem.get("SwapFree", 0)
-        sw_pct = round(100 * sw_used / sw_total, 1) if sw_total else 0.0
-        res["memory"] = {
-            "total_mib": round(mem["MemTotal"] / 1024),
-            "available_mib": round(mem.get("MemAvailable", mem.get("MemFree", 0)) / 1024),
-            "used_pct": used_pct,
-            "swap_used_mib": round(sw_used / 1024),
-            "swap_pressure": "none" if sw_used == 0 else "low" if sw_pct < 10 else
-                             "moderate" if sw_pct < 50 else "high",
-        }
-    else:
-        res["memory"] = "unavailable"
+    # memory + swap — DSM's 3.10 kernel has no MemAvailable, so memory_stats() approximates
+    # it rather than falling back to MemFree (which reads as ~99% used). See core meminfo.
+    res["memory"] = memory_stats(out(host.run(["cat", "/proc/meminfo"])))
 
     # instantaneous iowait via two /proc/stat samples ~1s apart
     stat = host.run(["sh", "-c", "cat /proc/stat; sleep 1; echo ---; cat /proc/stat"])

@@ -77,6 +77,7 @@ mage-hands/
 │       ├── audit.py              # forensic JSONL log + identity allowlist + activity ping
 │       ├── exec.py               # Runners (Shell/Nsenter) + gated run() (denylist + token)
 │       ├── policy.py             # PathPolicy + policied read_file
+│       ├── meminfo.py            # memory_stats(): MemAvailable, emulated on DSM's 3.10 kernel
 │       └── config.py             # env-driven Config
 ├── synology-hands/               # appliance #1: Synology NAS
 │   ├── server.py                 # Tier A/B tools; registers read_file + run()
