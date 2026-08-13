@@ -253,6 +253,26 @@ Or directly on the NAS: `sudo /usr/local/sbin/mage-hands-relay-up` / `-down`.
 
 ## Updating the relay
 
+> **Sync your checkout to `origin/main` before you rsync.** This push is one-way and
+> content-based: `rsync` overwrites whatever is on the box with your working tree, and it does
+> *not* care that the box's copy is newer. Deploying from a stale checkout silently **reverts**
+> the appliance — including `common/exec.py` (the `run()` denylist) and `common/policy.py` (the
+> read policy) — while `relay.sh up` cheerfully rebuilds and reports success. This happened on
+> 2026-08-13: both NAS relays were rolled back to a three-commit-old security core, and nothing
+> in the deploy output hinted at it.
+>
+> ```sh
+> git fetch origin && git status -sb   # expect "## main...origin/main" with no "behind"
+> ```
+>
+> To confirm afterwards, compare checksums rather than trusting the rebuild:
+> ```sh
+> for f in common/mage_hands_core/exec.py common/mage_hands_core/policy.py; do
+>   [ "$(git show main:$f | md5)" = "$(ssh <admin>@<nas> "md5sum /volume1/docker/mage-hands/$f" | awk '{print $1}')" ] \
+>     && echo "$f ok" || echo "$f MISMATCH"
+> done
+> ```
+
 ```sh
 rsync -az --exclude='.git/' --exclude='.env' --exclude='**/logs/' \
   -e 'ssh -i ~/.ssh/id_ed25519' ~/Downloads/mage-hands/ <admin>@<nas>.local:/volume1/docker/mage-hands/
