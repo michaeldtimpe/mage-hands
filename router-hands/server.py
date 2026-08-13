@@ -447,8 +447,9 @@ def _performance(host, out, ifaces) -> dict:
     else:
         res["load"] = "unavailable"
 
-    # Merlin's kernel is old enough to lack MemAvailable too, and a router has far less
-    # RAM to begin with — a bogus 99% reading is even more misleading here. See core meminfo.
+    # Shared with the Synology appliances so the memory block is computed one way everywhere.
+    # Merlin's kernel does publish MemAvailable (verified on router1: available_estimated=false),
+    # so this takes the kernel's own figure; the estimator is only a fallback. See core meminfo.
     res["memory"] = memory_stats(out(host.run(["cat", "/proc/meminfo"])))
 
     # instantaneous iowait via two /proc/stat samples ~1s apart — the trustworthy CPU signal
