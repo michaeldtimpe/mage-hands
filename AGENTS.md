@@ -266,6 +266,27 @@ a kappa→Cloudflare WAN speedtest), so judge the effect via Transmission sessio
 times, and expect it mainly on sparse swarms and seeding — downloads are config-capped at
 8000 KB/s (`speed-limit-down`) regardless.
 
+**Status (2026-08-14/15): Keeler → Bayfront house move; router1 relay retired to an interim
+direct-SSH model.** The Keeler LAN was decommissioned 2026-08-15. Its RT-AX88U Pro (`router1`) is
+being redeployed at Bayfront as a **media bridge** (staged: manual Merlin 3006.102.8_2 flash —
+never the router's built-in update check, which would flash stock ASUS over Merlin — then
+Operation Mode → Media Bridge joining `below` on 5 GHz, static `192.168.1.245`) serving the TV /
+Apple TV / wired Sonos. The **router-hands relay was NOT migrated**: the interim operating model
+is direct SSH from the Mac (`ssh router1-bridge` — ProxyJump `epaper`, key
+`~/.ssh/router_id_ed25519`); whether the relay returns is an open decision (owner will dictate).
+Bayfront's gateway is a **new ASUS RT-BE92U** (Merlin 3006.102.8, **no relay**,
+`ssh bayfront-router` — note it authorizes the *main* `id_ed25519` key, not the router-hands key),
+renumbered remotely from factory `192.168.50.1` to `192.168.1.1/24` with DHCP pool `.2–.170`
+mirroring Keeler, so the on-device statics (alpha `.247`, kappa `.248`, Brother printer `.250`)
+survive the move unchanged; the Transmission forward above was re-created on it
+(`51413 → .247`). **Stale until further notice:** the kappa-hosted `router1` relay and
+`router-monitor` still target `192.168.1.1`, which at Bayfront is the BE92U — their pinned host
+key fails closed, so leave them down. WAN is an AT&T **BGW620-700 in IP passthrough** (the BE92U
+holds the public IP directly); see lessons.md for the DNS-shadow gotcha (static WAN DNS
+`1.1.1.1`/`8.8.8.8` now set on the BE92U) and the `192.168.254.254` management address. The home
+public IP changed with the move, so `cf-homeip-watcher` must refresh the CF Access bypass once
+alpha is back online.
+
 ## Important Patterns
 
 - **The relay binds `127.0.0.1:8787` only.** `tailscale serve` (HTTPS :443, tailnet-private)

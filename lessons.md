@@ -509,3 +509,34 @@ the only path on your target platform — a `grep -c ^MemAvailable /proc/meminfo
 box would have caught this at authoring time. And when a number is derived rather than measured,
 put that fact *in the payload*; an operator can discount an estimate, but cannot discount a
 figure that doesn't admit it's one.
+
+## Renumbering a LAN behind an AT&T gateway in IP passthrough (2026-08-14)
+
+When the Bayfront RT-BE92U was renumbered from factory `192.168.50.0/24` to `192.168.1.0/24` (to
+preserve the fleet's on-device static IPs across the house move), every DNS lookup in the house
+died while raw connectivity stayed up. Cause: an AT&T BGW620-700 in IP passthrough hands the
+router a *public* WAN IP via DHCP but advertises **its own LAN address `192.168.1.254` as the DNS
+server** — fine while the LAN was `.50.x` (the address simply routed out the WAN), fatal the
+moment the LAN became `192.168.1.0/24` and the connected route **shadowed** the upstream
+resolver. Fix: static WAN DNS on the router (`wan_dnsenable_x=0`, `1.1.1.1`/`8.8.8.8`), which
+also makes the LAN immune to future BGW address weirdness.
+
+Working the BGW's admin UI remotely from inside such a LAN:
+
+- A `/32` host route on the ASUS must go in **Merlin's active policy table, not `main`** —
+  `ip rule` shows `20: from all lookup 8437`, so it's
+  `ip route add 192.168.1.254/32 dev eth0 table 8437` (a main-table twin is consulted after the
+  policy table and never wins). Non-persistent; delete both after.
+- The BGW login is scriptable with curl: GET `login.ha` **twice** (the form only renders once the
+  session cookie exists), then POST `nonce`, `password` masked to `*`s, `hashpassword` =
+  `md5(access_code + nonce)`, `Continue=Continue`. 302 = success; failures re-render with a 200.
+- **The punchline: none of that is needed for routine access.** These gateways answer their UI on
+  `192.168.254.254` — a hardcoded alternate management address inherited from the 2Wire/Pace
+  line — reachable from any LAN client because it routes out the WAN like any other non-local
+  address (verified live; a control probe to a random RFC1918 address gets nothing back).
+- Changing the BGW's LAN subnet via its own UI was **silently ignored** (302 accepted, no error,
+  config unchanged) — most likely locked while passthrough is active. Don't chase it.
+
+**Lesson:** in IP passthrough the AT&T gateway is still a live DNS/DHCP actor whose private
+address can collide with your LAN plan. Renumber with static upstream DNS from the start, and
+try `192.168.254.254` before building route tricks to reach the gateway's page.

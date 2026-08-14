@@ -25,8 +25,12 @@ remotely. Two layers:
 The relay is **off by default**. To use it from a fresh Claude session:
 1. Bring it up with `~/.config/mage-hands/relay.sh <appliance> up` (scoped passwordless sudo on
    the NAS; starting it is approval-gated). Appliances: `kappa`, `alpha` (NAS); `router1` (ASUS
-   Merlin router over SSH — its relay runs on `kappa`; **deployed & operational (2026-06-16)** —
-   provisioned per [router-hands/README.md](router-hands/README.md)). See getting-started.md.
+   Merlin router over SSH — its relay runs on `kappa`; provisioned per
+   [router-hands/README.md](router-hands/README.md), but **stale since the 2026-08 house move**:
+   the router it targets is now a media bridge and `192.168.1.1` is a different router (ASUS
+   RT-BE92U, no relay). Interim model is direct SSH (`ssh bayfront-router` / `ssh router1-bridge`);
+   don't bring the router1 relay up until it's re-pointed — see AGENTS.md Status 2026-08-14/15.)
+   See getting-started.md.
 2. Start a **new** Claude Code session — remote MCP servers load at session start, so its
    tools appear as `mcp__<name>__*` (e.g. `mcp__kappa__system_info`).
 3. Prefer Tier-A inspection tools (they auto-run). Mutation (`restart_*`), raw exec (`run`),
