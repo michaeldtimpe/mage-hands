@@ -540,3 +540,86 @@ Working the BGW's admin UI remotely from inside such a LAN:
 **Lesson:** in IP passthrough the AT&T gateway is still a live DNS/DHCP actor whose private
 address can collide with your LAN plan. Renumber with static upstream DNS from the start, and
 try `192.168.254.254` before building route tricks to reach the gateway's page.
+
+
+## A single-vendor, single-stream speedtest measures the path to that vendor, not your link
+
+net-monitor's logs appeared to show download throughput falling from ~400 Mbps to ~256 Mbps on
+the day of the Bayfront move — a plausible-looking WAN regression. It wasn't real, and it took
+two independent, stacked faults to manufacture it.
+
+**Fault 1 — AT&T's IPv4 route to Cloudflare is ~30 ms worse than its IPv6 route, at the Bayfront
+address.** Measured 2026-08-24 from kappa:
+
+| Destination | IPv4 | IPv6 |
+|---|---|---|
+| speed.cloudflare.com (colo DFW both families) | 43 ms | 17 ms |
+| cloudflare.com | 42 ms | 21 ms |
+| 1.1.1.1 | 39 ms | — |
+| Google (8.8.8.8 ICMP / www.google.com connect) | 8.9 / 19 ms | 20 ms |
+| Quad9 9.9.9.9 (the actual WAN resolver) | 10 ms | 10 ms |
+
+The IPv4 traceroute to Cloudflare shows the penalty injected at the exact AT&T→Cloudflare
+handoff — hop 6 `32.142.224.86` (AT&T) 18.1 ms → hop 7 `141.101.74.78` (Cloudflare) 38.0 ms →
+dest 40.6 ms. The IPv6 traceroute to the same host/colo peers into Cloudflare at hop 7
+(`2400:cb00:15:2::3`) in **8.985 ms**, dest 9.66 ms. Google and Quad9 over IPv4 are both fine
+(~9–10 ms), so the fault is Cloudflare-and-IPv4-specific, not a general AT&T IPv4 problem. Local
+gear is exonerated: the ASUS RT-BE92U adds 0.4 ms (hop 1) and the AT&T BGW620 adds 0.4 ms
+(hop 2).
+
+net-monitor's own logs independently dated the fault without any traceroute: median RTT to
+1.1.1.1 was **3.7 ms for Aug 10–14** and **38.8–39.4 ms from Aug 15 onward** (the Keeler→Bayfront
+house move), while 8.8.8.8 moved only 3.2 → 7.6 ms over the same window. Ten days of dated
+evidence that it's Cloudflare-specific, not a local change.
+
+**Fault 2 — net-monitor's container was IPv4-only, so it couldn't see the good path.** Its
+`1.1.1.1` ping target and its Cloudflare speedtest both rode the one anomalous IPv4 path, and its
+throughput test was a single 25 MB transfer — TCP slow-start at a 40 ms RTT never gets it near
+line rate. The two faults compounded into a convincing but entirely false ~400 → ~256 Mbps
+regression. Direct testing the same day proved the link was never degraded: 543–611 Mbps
+single-stream and **1032 Mbps across 8 parallel streams**, which is kappa's own 1 GbE NIC
+ceiling.
+
+**Resolution:** documented and accepted, not fixed at the network layer. Hosts with working IPv6
+already bypass the fault automatically — RFC 6724 prefers IPv6 when both are available, which is
+exactly why kappa's own `curl` reached the DFW colo in 17 ms while the v4-only container crawled
+at 40 ms. Explicitly considered and **rejected**:
+- **Changing DNS** — unnecessary. The WAN resolver is Quad9 (`9.9.9.9`, 10 ms), not 1.1.1.1. An
+  earlier memory note claiming static WAN DNS of 1.1.1.1/8.8.8.8 was wrong — `nvram` shows
+  `wan0_dns = 9.9.9.9 149.112.112.112` (Quad9), and IPv6 is in fact enabled
+  (`ipv6_service=dhcp6`, LAN prefix `2600:1702:63b0:139f::/64`).
+- **A router-side fix** — none exists. The route is AT&T's; the BE92U and BGW between them add
+  0.8 ms total.
+
+**Lesson:** a speedtest against one vendor, over one address family, with one small transfer,
+measures the path to that vendor — not your link. Stacked onto a monitoring host that itself
+lacked IPv6, it couldn't even see that a better path existed, so a routing anomaly at one CDN
+peering point read as a household-wide throughput collapse. Prefer multi-path, multi-stream
+measurement (and diff v4 against v6 when both exist) before trusting a single-target speedtest's
+verdict on "the link."
+
+
+## A "neutral" third-party speedtest target needs its own hosting vetted, or it just adds a second lie
+
+net-monitor's multi-path throughput rewrite considered adding a non-Cloudflare
+`THROUGHPUT_ALT_URL`, on the theory that a third reference point would help separate "Cloudflare
+peering is bad" from "the link is bad." Three candidates were measured from kappa before wiring
+one in:
+
+| Candidate | v4 connect | Result |
+|---|---|---|
+| aurora VM (own infra, unmetered) | 45 ms | **Rejected** — 234–620 Mbps across 5 runs of 4×75 MB, wildly variable, no local shaping visible; most likely Hetzner hypervisor-level bandwidth limiting on that VM. Best sample was no better than the Cloudflare-v4 baseline it was meant to check. |
+| `ash-speed.hetzner.com` | 51 ms | Rejected — rate-limited: 107 Mbps single-stream, 266 Mbps at 4 streams. |
+| `hil-speed.hetzner.com` | 208 ms | Rejected — too far to be a useful ceiling check. |
+
+None cleared the bar (measured throughput should comfortably beat the already-known-degraded
+Cloudflare-v4 path to be worth the extra daily data spend). `THROUGHPUT_ALT_URL` ships empty by
+default and stays that way — the cf-v4-vs-cf-v6 comparison already is the discriminator that
+found the real fault (see the entry above), at zero extra cost, and a third path only earns its
+keep if it's demonstrably *not* itself hosting- or shaping-limited.
+
+**Lesson:** a "neutral" third-party reference target isn't neutral until you've measured it under
+the same conditions as the thing you're checking — a small VPS or a rate-limited public speedtest
+host can be slower or more variable than the path you're trying to validate, which just adds a
+second unreliable signal instead of a control. Record the rejected candidates so the next person
+doesn't re-run the same dead-end experiment.

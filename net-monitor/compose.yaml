@@ -1,7 +1,7 @@
 # Always-on internet connectivity health logger on kappa.
 # alpine + curl + iputils (see Dockerfile); the busybox script is bind-mounted so edits don't
-# need a rebuild. Goes out the normal route (docker bridge -> kappa -> router -> WAN), so it
-# measures the same internet path the LAN uses.
+# need a rebuild. Runs on host networking (kappa -> router -> WAN), so it measures the same
+# internet path — and the same IPv4/IPv6 stacks — the LAN uses.
 #
 # Deploy on kappa:  sudo docker compose -f /volume1/docker/mage-hands/net-monitor/compose.yaml up -d --build
 # Read the log:     tail -F /volume1/docker/mage-hands/net-monitor/data/connectivity-$(date -u +%F).jsonl
@@ -12,8 +12,17 @@ services:
     image: net-monitor:local
     container_name: net-monitor
     restart: unless-stopped                   # always-on (unlike the ephemeral mage-hands relays); survives reboot
+    network_mode: host                        # measure the HOST's stack, v6 included.
+                                              # The docker bridge is v4-only, so cf6_down_mbps
+                                              # (and ipv6_ok) could never work there; enabling
+                                              # bridge v6 needs "ipv6": true in daemon.json +
+                                              # a dockerd restart, which on kappa would kill
+                                              # every container incl. the mage-hands relay.
+                                              # Host net borrows kappa's already-working v6
+                                              # with no daemon change; we publish no ports,
+                                              # so nothing is lost (and the NAT hop goes away).
     cap_add:
-      - NET_RAW                               # ping needs raw sockets
+      - NET_RAW                               # ping still needs raw sockets, host net or not
     command: ["/bin/sh", "/app/monitor.sh"]
     environment:
       - INTERVAL=10                           # sample cadence (seconds)
@@ -21,10 +30,17 @@ services:
       - TARGETS=1.1.1.1 8.8.8.8               # WAN v4 ping targets
       - TARGET6=2606:4700:4700::1111          # WAN v6 target (empty string disables the v6 test)
       - DNS_NAME=google.com
+      - TZ=US/Central                         # kappa's zone. Only THROUGHPUT_HOUR reads local time —
+                                              # log filenames and "ts" are UTC and stay UTC.
+                                              # Needs tzdata in the image (added to the Dockerfile).
       # throughput — a speedtest is heavy, so it runs on ITS OWN cadence, not every INTERVAL:
-      - THROUGHPUT_EVERY=21600                # seconds between speedtests (6h; 0 disables)
-      - THROUGHPUT_BYTES=25000000             # download size per test (~25 MB)
-      - THROUGHPUT_UP_BYTES=10000000          # upload size per test (~10 MB; 0 disables upload)
+      - THROUGHPUT_HOUR=4                     # run once a day at 04:00 LOCAL (catches up later the same day if we were down then)
+      - THROUGHPUT_EVERY=86400                # 0 DISABLES throughput; otherwise the fallback interval if THROUGHPUT_HOUR is unset/invalid
+      - THROUGHPUT_BYTES=75000000             # download size per stream (~75 MB). HARD CEILING: Cloudflare's
+                                              # __down?bytes= works at 75000000 but returns 1 byte at 100000000.
+      - THROUGHPUT_STREAMS=4                  # parallel streams per path (a single stream can't fill a ~1 Gbps link at 40 ms RTT)
+      - THROUGHPUT_UP_BYTES=10000000          # upload size per stream (~10 MB; 0 disables upload)
+      - THROUGHPUT_ALT_URL=                   # stays EMPTY: aurora measured 234-620 Mbps (Hetzner shaping), too noisy to be a reference. alt_down_mbps is null.
       # alerting — set a destination to enable (edge-triggered: DOWN / RECOVERED):
       - ALERT_NTFY_URL=                       # e.g. https://ntfy.sh/your-secret-topic
       - ALERT_WEBHOOK_URL=                    # generic JSON webhook; POSTs {"text":"..."}
