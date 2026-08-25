@@ -12,10 +12,14 @@ the script is bind-mounted so edits don't need a rebuild.
 - `wan_up` + `targets[]` (`rtt_ms`, **`jitter_ms`**, `loss_pct` for 1.1.1.1 and 8.8.8.8) — the WAN
   signal. Jitter is rtt `mdev` from iputils ping (5 pings @ 0.2 s).
 - `ipv6_ok` — IPv6 path reachable (pings `TARGET6`). The container runs `network_mode: host` (see
-  Tuning & sizing below), so it inherits kappa's own IPv6 stack — **expect `true`**. It logged
-  `false` for the entire history through 2026-08-24 purely because the *docker bridge* network was
-  IPv4-only; the host itself always had working WAN/LAN IPv6. See `lessons.md` for the AT&T
-  IPv4-vs-IPv6 routing fault that discontinuity ended up helping to prove.
+  Tuning & sizing below), so it inherits kappa's own IPv6 stack — **expect `true`**. **Every
+  `false` before 2026-08-24 is meaningless**, for two independent reasons stacked on top of each
+  other: the *docker bridge* was IPv4-only until the move to host networking, and `TARGET6` was
+  then still `2606:4700:4700::1111` — the one v6 address here that answers DNS and HTTPS but
+  silently drops ICMPv6 echo, so the field stayed pinned false against a completely healthy
+  stack. Fixing the network mode alone looked like it worked and did not. Target is now
+  `2606:4700:4700::1001`; see `lessons.md` ("ICMP to an anycast resolver is the wrong oracle")
+  and, for the AT&T IPv4-vs-IPv6 routing fault, the entry above it.
 - `dns_ok` — name resolution works (catches "internet up but nothing loads").
 - `tput` *(periodic only)* — `{down_mbps, up_mbps, cf_down_mbps, cf6_down_mbps, alt_down_mbps,
   bytes, streams}` via Cloudflare's speed endpoints plus an optional alternate target. **A
@@ -76,6 +80,13 @@ Edit `compose.yaml` env, then `sudo docker compose up -d --build`. Key knobs: `I
 `TARGETS`, `TARGET6` (empty disables v6), `THROUGHPUT_HOUR` / `THROUGHPUT_EVERY` /
 `THROUGHPUT_BYTES` / `THROUGHPUT_STREAMS` / `THROUGHPUT_UP_BYTES` / `THROUGHPUT_ALT_URL`,
 `RETAIN_DAYS`.
+
+- `TARGET6` — **do not point this at `2606:4700:4700::1111`.** It drops ICMPv6 echo while still
+  serving DNS/HTTPS, which pins `ipv6_ok` false forever. Any replacement should be sanity-checked
+  with a bare `ping6 -c 5` from the host *before* it is trusted as a health signal.
+- `RETAIN_DAYS` — the daily prune globs `connectivity-*`, not `connectivity-*.jsonl`, so sidecar
+  files a migration leaves behind (e.g. `connectivity-<date>.jsonl.prefix-bak`) age out too. All
+  state files in the log dir are dotfiles, so they are never matched.
 
 - `THROUGHPUT_HOUR` (default `4`) — the throughput test runs once per **local** day, at or after
   this hour (`>=`, not `==`), so a container that was down at 4 AM still catches up later that

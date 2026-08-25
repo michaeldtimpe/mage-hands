@@ -16,7 +16,9 @@ LOG_DIR="${LOG_DIR:-/data}"
 INTERVAL="${INTERVAL:-10}"
 GATEWAY="${GATEWAY:-192.168.1.1}"
 TARGETS="${TARGETS:-1.1.1.1 8.8.8.8}"          # WAN v4 ping targets
-TARGET6="${TARGET6:-2606:4700:4700::1111}"      # WAN v6 target (Cloudflare); empty to skip
+TARGET6="${TARGET6:-2606:4700:4700::1001}"      # WAN v6 target (Cloudflare); empty to skip.
+                                                 # NOT ::1111 — it answers DNS/HTTPS but drops
+                                                 # ICMPv6 echo, so ipv6_ok reads false forever.
 DNS_NAME="${DNS_NAME:-google.com}"
 PING_COUNT="${PING_COUNT:-5}"
 PING_INT="${PING_INT:-0.2}"                      # sub-second needs iputils ping (we install it)
@@ -191,7 +193,10 @@ while :; do
   # day rollover: prune archives past retention (cheap, runs once/day)
   if [ "$(cat "$DAYMARK" 2>/dev/null)" != "$today" ]; then
     echo "$today" > "$DAYMARK"
-    find "$LOG_DIR" -name 'connectivity-*.jsonl' -mtime +"$RETAIN_DAYS" -delete 2>/dev/null
+    # glob is 'connectivity-*' (not '*.jsonl'): migrations leave sidecars such as
+    # connectivity-<date>.jsonl.prefix-bak, and a .jsonl-anchored pattern never ages them out.
+    # Safe because every state file in LOG_DIR is a dotfile (.day/.tput_last/.alert_state).
+    find "$LOG_DIR" -name 'connectivity-*' -mtime +"$RETAIN_DAYS" -delete 2>/dev/null
   fi
 
   # edge-triggered alerting on WAN reachability

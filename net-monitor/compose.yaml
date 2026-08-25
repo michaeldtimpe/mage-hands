@@ -28,7 +28,12 @@ services:
       - INTERVAL=10                           # sample cadence (seconds)
       - GATEWAY=192.168.1.1
       - TARGETS=1.1.1.1 8.8.8.8               # WAN v4 ping targets
-      - TARGET6=2606:4700:4700::1111          # WAN v6 target (empty string disables the v6 test)
+      - TARGET6=2606:4700:4700::1001          # WAN v6 target (empty string disables the v6 test).
+                                              # NOT ::1111: that anycast address answers DNS and
+                                              # HTTPS but silently drops ICMPv6 echo, so ipv6_ok
+                                              # read false on ~100% of samples. Verified
+                                              # 2026-08-24: ::1001, 8.8.8.8 and 8.8.4.4 v6 all
+                                              # answer 0% loss from kappa; only ::1111 does not.
       - DNS_NAME=google.com
       - TZ=US/Central                         # kappa's zone. Only THROUGHPUT_HOUR reads local time —
                                               # log filenames and "ts" are UTC and stay UTC.

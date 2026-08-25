@@ -769,3 +769,73 @@ short of ULA + NAT66 with custom `/jffs` scripts. Reverted to `/64`; decided not
 **Lesson:** enabling IPv6 on a firewalled host silently changes what "my firewall allows the LAN"
 means, because address-family-specific rules quietly evaporate. Check `ip6tables -S` after turning
 v6 on — the vendor tooling that generated the v4 rules may not admit the v6 chains exist.
+
+
+## Uninstalling a package can strand a shared library — and the breakage waits for the next restart
+
+alpha reported "Synology Application Service failed to start" right after a package update, which
+made the update look guilty. It wasn't. Every install script returned 0; the package died at the
+last step, starting one sub-service:
+
+```
+pkg-SynologyApplicationService-notification_send.service
+  notification_send: error while loading shared libraries:
+  libsynorelayd.so.7: cannot open shared object file
+```
+
+`notification_send` doesn't link that library directly — the chain is `notification_send` →
+`libsynopersonalutil.so.7` (shipped *by the package itself*) → `libsynorelayd.so.7` →
+`/usr/lib/libsynorelayd.so.7`, a symlink into `/var/packages/QuickConnect/target/...`. **QuickConnect
+had been uninstalled eight days earlier**, and its uninstall deleted the only copy of that library
+on the box while leaving the `/usr/lib` symlinks behind, dangling. `find / -xdev` hides this — the
+package payload lives on `/volume1`, so the search must not stop at the root filesystem.
+
+The timing is the instructive part:
+
+```
+Aug 16 09:03  SAS upgraded to 1.8.3, starts fine (ret=0)
+Aug 16 10:18  QuickConnect uninstalled          <- breakage becomes latent
+   ...        running notification_send keeps working: it holds the deleted inode open
+Aug 24 22:51  SAS upgraded to 1.9.0 -> first restart since -> start_failed (272)
+```
+
+Nothing was wrong with the new version, and nothing would have looked wrong for weeks. A reboot
+would have detonated it identically. Resolution here was to uninstall SAS entirely — no installed
+package declared a dependency on it (`grep -l SynologyApplicationService /var/packages/*/INFO`
+matched only its own `INFO`), and none of Drive/Photos/Chat/Office/Notes are installed; DSM's own
+notifications go through base `synonotify`. The uninstall also leaves litter: a dangling
+`…target.wants/pkgctl-*.service` symlink and two ghost units needing `systemctl reset-failed`.
+
+**Lesson:** removing a package is not a local act — it can strip a library that *other* packages
+link, and the victim keeps running on the deleted inode until something restarts it. The failure
+then surfaces attached to whatever innocent event did the restart. When a service dies right after
+an update, check whether the missing dependency went missing *long* before, and treat "still
+running" as a stale claim about a file that may no longer exist.
+
+## ICMP to an anycast resolver is the wrong oracle for "is this address family up"
+
+`net-monitor` logged `ipv6_ok:false` on ~100% of samples for days (0 true / 7,965 false in one day)
+while kappa's IPv6 was entirely healthy. The field is derived from ping loss alone, and `TARGET6`
+was `2606:4700:4700::1111` — which turns out to be the single v6 address on this network that will
+not answer ICMPv6 echo, while happily serving DNS and HTTPS:
+
+```
+2606:4700:4700::1111  100% loss     <- the probe target
+2606:4700:4700::1001    0% loss     <- Cloudflare's own secondary
+2001:4860:4860::8888    0% loss
+2001:4860:4860::8844    0% loss
+nslookup via ::1111 -> OK      curl -6 https://[::1111]/ -> 301
+```
+
+The tell was that the "outage" correlated exactly with one address rather than with a time window
+or a link event — a real v6 outage does not spare `8.8.8.8`'s v6 twin. This is the same failure
+family as the QuickConnect miss above: a confident negative produced by asking one oracle that was
+never obliged to answer. Worse, it had a plausible cover story — the container had genuinely been
+v4-only on the docker bridge before moving to `network_mode: host`, so "ipv6_ok is false" matched a
+real past cause and the fix (host networking) was wrongly recorded as having resolved it.
+
+**Lesson:** health checks must not confuse "this specific host declines to answer this specific
+protocol" with "this capability is down." Probe the capability you actually care about (a TCP
+connect or an HTTP fetch over that family), or require two independent targets to agree before
+declaring an outage — and be suspicious when a fix's confirmation is a metric the fix never
+touched.

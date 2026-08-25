@@ -320,6 +320,33 @@ and every valid 160 MHz chanspec on 5 GHz spans DFS. Full write-up, including th
 traps and the lying `ATE Get_WanLanStatus` oracle, is in lessons.md. Also corrected in the table
 above: **kappa is a 720+ (geminilake) on DSM 7.4.1**, not a 718+/7.2.1.
 
+**Status (2026-08-24, later same day): alpha package cleanup + `net-monitor` `ipv6_ok` fixed.**
+Three unrelated things surfaced in one session, all now closed.
+
+1. **`SynologyApplicationService` on alpha was left `start_failed` by a routine update** — not the
+   update's fault. Its `notification_send` needs `libsynorelayd.so.7`, which only the
+   **QuickConnect** package ships; QuickConnect was uninstalled 2026-08-16 and stranded
+   `/usr/lib/libsynorelayd.so.7` as a dangling symlink. The running process survived on the deleted
+   inode for 8 days, so the first restart is what exposed it. **SAS was uninstalled** — nothing in
+   `/var/packages/*/INFO` depended on it and no Synology app (Drive/Photos/Chat/Office/Notes) is
+   installed; DSM's own notifications use base `synonotify`. Cleaned up the orphaned
+   `…target.wants/pkgctl-*.service` symlink and `reset-failed` the ghost units. **If a Synology app
+   is ever installed on alpha it will pull SAS back and fail the same way** until QuickConnect is
+   reinstalled. Full write-up in `lessons.md`.
+2. **`net-monitor` `ipv6_ok` was a false negative**, not an outage: `TARGET6` was
+   `2606:4700:4700::1111`, which answers DNS/HTTPS but drops ICMPv6 echo (its sibling `::1001` and
+   both Google v6 resolvers answer 0%). Changed to `::1001` in `compose.yaml` **and** as the
+   `monitor.sh` default, repo and deployed copy kept byte-identical and md5-verified; verified live
+   (`ipv6_ok=true`). Also widened the retention prune glob to `connectivity-*` so migration sidecars
+   like `…jsonl.prefix-bak` age out. The DSM "container stopped" warning that started this was just
+   the morning redeploy replacing the container — gap analysis found **zero** sample gaps >30 s.
+3. **Auto-update tasks on alpha re-verified with evidence:** Tailscale → **1.102.2** on 2026-08-11
+   00:00:09, Plex → **1.43.3.10896** on 2026-08-19 12:00:12, Watchtower ran 2026-08-04 12:02–12:03
+   and recreated 6 containers; the first-Tuesday gate correctly no-ops on 2026-08-25. Note
+   Watchtower only touches **running** containers, so the intentionally-stopped `audiobookshelf`
+   is excluded by design. When auditing these, read **`/etc/crontab` + `synoschedtask --get id=N`**
+   — `esynoscheduler.db` holds only a single `bootup` task and is the wrong place to look.
+
 ## Important Patterns
 
 - **The relay binds `127.0.0.1:8787` only.** `tailscale serve` (HTTPS :443, tailnet-private)
