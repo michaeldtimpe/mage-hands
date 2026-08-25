@@ -87,6 +87,11 @@ Edit `compose.yaml` env, then `sudo docker compose up -d --build`. Key knobs: `I
 - `RETAIN_DAYS` — the daily prune globs `connectivity-*`, not `connectivity-*.jsonl`, so sidecar
   files a migration leaves behind (e.g. `connectivity-<date>.jsonl.prefix-bak`) age out too. All
   state files in the log dir are dotfiles, so they are never matched.
+- `THROUGHPUT_MAX_MBPS` (default `10000`; `2000` on kappa) — sanity ceiling. A throughput result
+  above it, or NaN, is **discarded** (`null`) and announced on stderr, *not* clamped to the
+  ceiling — clamping would fabricate a plausible-looking sample, and a wrong number in a time
+  series is worse than a gap. Added after the first run following a container start emitted
+  **1.9e26 Mbps** (2026-08-24). Raise it if the NIC gets faster, or real samples go null.
 
 - `THROUGHPUT_HOUR` (default `4`) — the throughput test runs once per **local** day, at or after
   this hour (`>=`, not `==`), so a container that was down at 4 AM still catches up later that

@@ -31,6 +31,7 @@ THROUGHPUT_BYTES="${THROUGHPUT_BYTES:-25000000}" # download size (~25 MB)
 THROUGHPUT_UP_BYTES="${THROUGHPUT_UP_BYTES:-10000000}"  # upload size (~10 MB; 0 disables upload)
 THROUGHPUT_STREAMS="${THROUGHPUT_STREAMS:-4}"    # parallel curl streams per path (1 stream under-measures a fast, high-RTT link)
 THROUGHPUT_ALT_URL="${THROUGHPUT_ALT_URL:-}"     # optional non-Cloudflare download URL (empty => alt_down_mbps is null)
+THROUGHPUT_MAX_MBPS="${THROUGHPUT_MAX_MBPS:-10000}"  # sanity ceiling; a result above this is DISCARDED (null), not clamped
 [ "$THROUGHPUT_STREAMS" -ge 1 ] 2>/dev/null || THROUGHPUT_STREAMS=4   # keep it numeric: it is emitted into the JSON
 
 # Alerting (edge-triggered; no destination set => disabled). ntfy = plain POST body; webhook = JSON {"text":...}.
@@ -89,7 +90,19 @@ tput_one() {
     tp_i=$((tp_i + 1))
   done
   wait
-  cat /tmp/tp_s* 2>/dev/null | awk '{s+=$1} END{if(s>0) printf "%.1f", s*8/1000000; else print "na"}'
+  # Sanity gate. curl's %{speed_*} has been seen to come back absurd on the first run after a
+  # container start (2026-08-24: 1.9e26 Mbps), and a wrong number in a time series is worse than
+  # a gap — it silently poisons every later comparison. Anything over the ceiling, or NaN, is
+  # DISCARDED as "na" (JSON null) rather than clamped to the ceiling, which would fabricate a
+  # plausible-looking sample. Rejections are announced on stderr so they show in `docker logs`.
+  cat /tmp/tp_s* 2>/dev/null | awk -v max="$THROUGHPUT_MAX_MBPS" '{s+=$1} END{
+      if (s <= 0) { print "na"; exit }
+      m = s*8/1000000
+      if (m != m || m > max+0) {                       # m!=m catches NaN
+        printf "net-monitor: DISCARDED implausible throughput %.3g Mbps (ceiling %s)\n", m, max > "/dev/stderr"
+        print "na"; exit
+      }
+      printf "%.1f", m }'
 }
 
 # echoes "best_down up cf cf6 alt" (Mbps each, or "na" -> emitted as JSON null).

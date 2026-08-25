@@ -46,6 +46,11 @@ services:
       - THROUGHPUT_STREAMS=4                  # parallel streams per path (a single stream can't fill a ~1 Gbps link at 40 ms RTT)
       - THROUGHPUT_UP_BYTES=10000000          # upload size per stream (~10 MB; 0 disables upload)
       - THROUGHPUT_ALT_URL=                   # stays EMPTY: aurora measured 234-620 Mbps (Hetzner shaping), too noisy to be a reference. alt_down_mbps is null.
+      - THROUGHPUT_MAX_MBPS=2000              # sanity ceiling: a result above this is DISCARDED (null) and logged, not clamped.
+                                              # kappa is on a 1GbE port (~940 Mbps hard max), so 2000 is 2x the
+                                              # physical ceiling — generous, but it still catches the 1.9e26 Mbps
+                                              # garbage seen 2026-08-24. RAISE THIS if kappa ever moves to a 10G port,
+                                              # or real samples will silently become null (watch `docker logs`).
       # alerting — set a destination to enable (edge-triggered: DOWN / RECOVERED):
       - ALERT_NTFY_URL=                       # e.g. https://ntfy.sh/your-secret-topic
       - ALERT_WEBHOOK_URL=                    # generic JSON webhook; POSTs {"text":"..."}
