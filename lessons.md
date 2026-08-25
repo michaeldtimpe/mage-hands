@@ -623,3 +623,149 @@ the same conditions as the thing you're checking — a small VPS or a rate-limit
 host can be slower or more variable than the path you're trying to validate, which just adds a
 second unreliable signal instead of a control. Record the rejected candidates so the next person
 doesn't re-run the same dead-end experiment.
+
+
+## Before blaming the router, check whether anything you own can saturate the link
+
+Bayfront's WAN is 5 Gbps symmetrical fiber; speed tests topped out around 3.5 Gbps, and the
+working hypothesis was a router CPU bottleneck on the ASUS RT-BE92U. Every layer of that turned
+out to be wrong, in an instructive order.
+
+**Nothing in the path before the client was limiting** (all read 2026-08-24):
+
+| Hop | Reading | How |
+|---|---|---|
+| AT&T BGW620-700 PON | `OPERATION (O5)`, Lightspeed, **10000 Mbps full duplex** | `curl http://192.168.200.254/cgi-bin/broadbandstatistics.ha` from the dual-homed jump Pi |
+| BE92U WAN `eth0` | 10GFD | `ethctl eth0 media-type` |
+| BE92U LAN-side MAC `eth1` | 10GFD (SerDes) | `ethctl eth1 media-type` |
+| Forwarding fast path | `Acceleration Mode: <L2 & L3>`, `runner_disable=0`, hw-switching enabled | `fc status`, `ethswctl -c hw-switching` |
+
+Every known accelerator-killer was already off: `qos_enable=0`, `bwdpi_db_enable=0`,
+`wrs_enable=0`, `TM_EULA=0` (so AiProtection has never been able to run), `MULTIFILTER_ALL=0`,
+`fw_log_x=none`, no VPN client or server. Router CPU read **92.8% idle at rest**; load average
+stayed 0.26–0.31 across the session. (Caveat, stated because it matters: the CPU sample was taken
+*at rest*, before the throughput runs — no under-load sample was captured.)
+
+**The 3.5 Gbps figure was an artifact of how it was measured.** The router ships
+`/usr/sbin/ookla` and exposes it as the UI's Speed Test. Traffic that *terminates on* the router
+gets **no flow acceleration** — the flow cache accelerates *forwarded* flows — so that test
+benchmarks the CPU's TCP stack, not the forwarding capacity that carries real client traffic. The
+CPU-bottleneck intuition was right about the mechanism and wrong about the consequence: it caps
+the router's own speed test and says nothing about a LAN client's ceiling.
+
+**The real ceiling is the client, and it isn't close.** Per-client PHY rates straight from the AP
+(`wl -i <if> sta_info <mac>`):
+
+| Client | Radio | PHY |
+|---|---|---|
+| m5 (Mac17,6, 802.11be) | 6 GHz, **160 MHz** | 2041 Mbps |
+| media bridge (RT-AX88U Pro) | 5 GHz, 80 MHz (advertises SGI160) | 1200 Mbps |
+| `76:fc:8f` | 5 GHz, 80 MHz | 907 Mbps |
+| jump Pi | 5 GHz, 80 MHz | 433 Mbps |
+| 2.4 GHz gear | 20 MHz | 52–72 Mbps |
+
+The fastest PHY rate anywhere on the LAN is 2.04 Gbps, so 3.5 Gbps was never physically
+reachable by any device in the house. Measured throughput, multi-stream to Linode Dallas +
+Hetzner Ashburn: **m5 847 Mbps** down / 439 up (macOS `networkQuality`, "High" accuracy),
+corroborated at 823 Mbps by an independent 8-stream `curl` run; alpha **549 Mbps** and kappa
+**442 Mbps**. Treat those two as **floors, not ceilings** — they were taken against Linode and
+Hetzner, and the entry above already records `ash-speed.hetzner.com` rate-limiting kappa to
+107 Mbps single-stream / 266 Mbps at 4 streams. kappa is separately documented reaching
+**1032 Mbps** against Cloudflare across 8 streams, which is its 1 GbE NIC ceiling. No conclusion
+about either NAS's host or link capacity should be drawn from the 549/442 figures.
+
+**Three measurement traps worth keeping:**
+
+- **Do not sum concurrent multi-host tests behind one public IP.** Running m5 + alpha + kappa at
+  once totalled **947 Mbps — less than m5 alone managed (823)**. All three egress from a single
+  NAT address and the public speedtest endpoints throttle per source IP, so the hosts cannibalise
+  each other. The result is worthless as an aggregate; discard it rather than reason from it.
+- **`speed.cloudflare.com/__down` returned HTTP 403 to macOS `curl`**, with and without a browser
+  User-Agent. Linode Dallas (`speedtest.dallas.linode.com/garbage.php?ckSize=2048`) and
+  `ash-speed.hetzner.com/1GB.bin` both answered fine. *Not* checked from kappa or from
+  net-monitor's container, so whether net-monitor's Cloudflare throughput probe is affected is an
+  open question — verify before assuming its `tput` series is still valid.
+- **`ash-speed.hetzner.com` gave 538 Mbps single-stream from m5**, against the 107 Mbps recorded
+  in the entry above when measured from kappa. That rejection was source- and time-specific, not
+  a fixed property of the host — re-measure before reusing a past verdict on a speedtest target.
+
+**And one router-side oracle that simply lies:** `ATE Get_WanLanStatus` returned
+`W0=T;L1=X;L2=X;L3=X;L4=X`, claiming all four LAN ports were down while the ARP table was full of
+wired devices. `ethswctl -c getlanall` is no better — it reports only the aggregate
+(`LAN All (count 1): eth1`). Per-physical-port link speed was not obtainable from the router at
+all; the 2.5G port figure came from the owner, not from the device.
+
+**Radios were left alone, deliberately.** 6 GHz auto-selected `channel 63, 320 MHz` and is already
+maximal — m5 negotiates only 160 MHz because *Apple's Wi-Fi 7 caps there*, which no AP setting
+changes. 5 GHz is pinned to `36/80`; `wl -i wl1 chanspecs -b 5 -w 160` lists `36/160` through
+`128/160` and **every one of them spans DFS channels** (there is no non-DFS 160 MHz in US/201).
+The only 160-capable client is the media bridge, which backhauls TV / Apple TV / Sonos and needs
+under 100 Mbps — so widening would trade radar-triggered dropouts on the TV path for headroom
+nothing uses. Also note: **the jump Pi is a 5 GHz client and is the only SSH path to the router**,
+so `restart_wireless` cuts remote access until it reassociates.
+
+**Lesson:** "the link is slower than the plan" is a claim about a *path*, and the client is part
+of the path. Before profiling the router, enumerate what each client can physically do — an AP
+association table gives you every device's PHY ceiling in one command. Here the fastest client
+could use 17% of the purchased bandwidth, which no amount of router tuning would have changed,
+and the number that started the investigation came from a test that never touched the forwarding
+path at all.
+
+
+## Enabling IPv6 on DSM buys you outbound only — the firewall's v4 rules don't translate
+
+alpha was the last IPv4-only host on the LAN, still paying the ~30 ms AT&T→Cloudflare IPv4
+penalty documented above (kappa had IPv6 all along). Enabling it is a two-line config change plus
+a live apply that needs no network restart:
+
+```sh
+# /etc/sysconfig/network-scripts/ifcfg-bond0 — mirror what already worked on kappa
+IPV6INIT=auto_dhcp        # was: off
+IPV6_ACCEPT_RA=1
+# slaves (ifcfg-eth0, ifcfg-eth1) take IPV6INIT=dhcp + IPV6_ACCEPT_RA=1
+
+# apply without bouncing the interface (IPv4, Plex, the *arr stack all stay up)
+echo 0 > /proc/sys/net/ipv6/conf/bond0/disable_ipv6
+echo 1 > /proc/sys/net/ipv6/conf/bond0/autoconf
+echo 2 > /proc/sys/net/ipv6/conf/bond0/accept_ra   # 2, so it survives forwarding being on
+```
+
+SLAAC produced a GUA and a default route within seconds, and the payoff was immediate: **1.1.1.1
+at 38.8 ms over v4 vs 8.6 ms to the same anycast service over v6.**
+
+**The non-obvious part is the firewall.** `synofirewall` builds the `ip6tables` chains *by itself*
+the moment the v6 stack comes up — no `firewall_reload` needed, the chains were already populated
+on first inspection. But **rules whose source is an IPv4 netmask do not translate into the v6
+chains.** alpha's allow-list is four netmask rules (LAN, tailnet CGNAT, two docker ranges) ahead
+of a final drop; what survives into `INPUT_FIREWALL` under v6 is only:
+
+```
+-A INPUT_FIREWALL -i lo -j ACCEPT
+-A INPUT_FIREWALL ... ipv6-icmp types 130/133/134/135/136/137 -j ACCEPT   # ND, must not be broken
+-A INPUT_FIREWALL -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT_FIREWALL -j DROP
+```
+
+So a DSM box with IPv6 enabled and the firewall on is **outbound-only**: it reaches the internet
+over v6 (which is the point), and accepts no inbound v6 at all — including from your own LAN.
+kappa has run exactly this way, unnoticed, for as long as it has had IPv6. The one exception is a
+rule whose `source_ip_group` is `all`, which *does* materialise in v6 — alpha's `transmission-peer`
+rule puts 51413 tcp/udp into the v6 chain too, though the router's `ip6tables FORWARD` only accepts
+`br0 → eth0`, so it is not reachable from the WAN.
+
+Two consequences for this repo. First, `firewall_rules` reports `synofirewall --enum IPV4` only, so
+its `generated_iptables` field is silent about all of the above — read `ip6tables -S` directly when
+v6 is in play. Second, if inbound v6 is ever wanted on a DSM host, it needs an explicit rule with a
+v6 source (or `all`), and the delegated prefix is dynamic, so pinning one to today's `/64` is a
+maintenance trap.
+
+**Related, and a hard stop:** the guest network cannot have IPv6 here. AT&T's BGW in IP passthrough
+delegates exactly one `/64` — setting `ipv6_prefix_len_wan=60` and restarting `dhcp6c` logged
+`WAN Prefix Size Requested:/60, Received:/64` — and Asuswrt assigns that single `/64` entirely to
+`br0`. The legacy guest bridge (`br56`, its own `dnsmasq-5.conf` with zero v6 directives, no
+`br56` rule in `ip6tables FORWARD`) has no second subnet to receive, so guest clients stay v4-only
+short of ULA + NAT66 with custom `/jffs` scripts. Reverted to `/64`; decided not worth it.
+
+**Lesson:** enabling IPv6 on a firewalled host silently changes what "my firewall allows the LAN"
+means, because address-family-specific rules quietly evaporate. Check `ip6tables -S` after turning
+v6 on — the vendor tooling that generated the v4 rules may not admit the v6 chains exist.

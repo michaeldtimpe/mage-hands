@@ -155,7 +155,7 @@ script). Use a **separate token per appliance**.
 
 | Name | Host | Hardware / OS | MCP URL | Notes |
 |------|------|---------------|---------|-------|
-| `kappa` (synology-hands) | `kappa.<tailnet>.ts.net` | Synology 718+ (apollolake), DSM 7.2.1 x86_64 | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login; scoped passwordless sudo installed; Mac start/stop via `~/.config/mage-hands/relay.sh kappa up\|down` + approval rules in `~/.claude/settings.json` |
+| `kappa` (synology-hands) | `kappa.<tailnet>.ts.net` | Synology 720+ (geminilake), DSM 7.4.1 x86_64 (corrected 2026-08-24 from `uname`/`VERSION`; the row previously read "718+ (apollolake), DSM 7.2.1") | `https://kappa.<tailnet>.ts.net/mcp` | admin user `magehands`; deploy dir `/volume1/docker/mage-hands`; token at `~/.config/nas-relay/kappa.token`; `ALLOWED_USERS` = your Tailscale login; scoped passwordless sudo installed; Mac start/stop via `~/.config/mage-hands/relay.sh kappa up\|down` + approval rules in `~/.claude/settings.json` |
 | `alpha` (synology-hands) | `alpha.<tailnet>.ts.net` | Synology 1517+ (avoton), DSM 7.3.1 x86_64; 5× 10TB → 2× RAID5 → LVM `volume_1` ~37 TiB; **SSD cache** 2× Intel D3-S4510 240GB M.2 SATA (M2D17) in RAID1 read-write/writeback (DSM `nvc1`/`nvc2`) | `https://alpha.<tailnet>.ts.net/mcp` | same setup mirrored from kappa; token at `~/.config/nas-relay/alpha.token`; `mcp__alpha__*` permission rules added; start/stop `~/.config/mage-hands/relay.sh alpha up\|down` |
 | `router1` (router-hands) | runs on `kappa` | ASUS Asuswrt-Merlin router, reached over SSH | `https://router1.<tailnet>.ts.net/mcp` | **deployed & operational (2026-06-16); provisioned per [router-hands/README.md](router-hands/README.md)**. SSHRunner relay container on kappa + Tailscale **sidecar** node; unprivileged; SSH key in `router-hands/secrets/`; `BIND_HOST=127.0.0.1`/`PORT=8788`; synology-parity Tier-A tools (`disk_usage`/`performance`/`pending_updates`/`internet_exposure`) + gated `reboot_router`; `run()` **on by default** (`ROUTER_ENABLE_RUN=false` to disable; router denylist also closes indirect reboot paths so `reboot_router` is the only intended one); lifecycle `mage-hands-router-relay-{up,down}`; `relay.sh router1 up\|down` (SSHes to kappa, not the router) |
 
@@ -282,10 +282,43 @@ survive the move unchanged; the Transmission forward above was re-created on it
 (`51413 → .247`). **Stale until further notice:** the kappa-hosted `router1` relay and
 `router-monitor` still target `192.168.1.1`, which at Bayfront is the BE92U — their pinned host
 key fails closed, so leave them down. WAN is an AT&T **BGW620-700 in IP passthrough** (the BE92U
-holds the public IP directly); see lessons.md for the DNS-shadow gotcha (static WAN DNS
-`1.1.1.1`/`8.8.8.8` now set on the BE92U) and the `192.168.254.254` management address. The home
+holds the public IP directly); see lessons.md for the DNS-shadow gotcha and the
+`192.168.254.254` management address. (**Correction:** the BE92U's static WAN DNS is **Quad9** —
+`wan0_dns = 9.9.9.9 149.112.112.112` — not the `1.1.1.1`/`8.8.8.8` recorded here at the time; see
+the single-vendor-speedtest entry in lessons.md.) The home
 public IP changed with the move, so `cf-homeip-watcher` must refresh the CF Access bypass once
 alpha is back online.
+
+**Status (2026-08-24): IPv6 enabled on alpha; the "slow WAN" turned out not to be the router.**
+alpha was the last IPv4-only host on the LAN. `ifcfg-bond0` went `IPV6INIT=off` → **`auto_dhcp`**
++ `IPV6_ACCEPT_RA=1` (slaves `eth0`/`eth1` to `dhcp`), mirroring kappa's long-working
+`ifcfg-ovs_bond0`, then applied **live via `/proc/sys/net/ipv6/conf/bond0/*` with no network
+restart** — IPv4, Plex and the *arr stack never dropped. Backups are `ifcfg-*.bak-20260824-ipv6`.
+Result: a SLAAC GUA + default route, and Cloudflare RTT **38.8 ms (v4) → 8.6 ms (v6)**, i.e. the
+AT&T IPv4 peering penalty documented in lessons.md, gone. **kappa already had IPv6** — the earlier
+coverage audit was right that only alpha was missing. Reboot persistence rests on config parity
+with kappa and was **not** verified by an actual reboot.
+
+Two things this surfaced that affect the firewall tools. **DSM + IPv6 is outbound-only by
+default:** `synofirewall` builds the `ip6tables` chains unprompted when the v6 stack comes up (no
+`firewall_reload` needed), but IPv4-netmask allow rules do **not** translate — the v6 chains keep
+only `lo` + ND/ICMPv6 + `ESTABLISHED,RELATED` + `DROP`, so both NASes accept no inbound v6 at all.
+Rules with `source_ip_group: all` *do* cross over (alpha's `transmission-peer` 51413 appears in v6,
+though the router's `ip6tables FORWARD` blocks it from the WAN). Note `firewall_rules` enumerates
+`synofirewall --enum IPV4` only, so read `ip6tables -S` directly when v6 matters. **Guest-network
+IPv6 is blocked upstream:** AT&T's BGW in IP passthrough delegates exactly one `/64`
+(`ipv6_prefix_len_wan=60` → syslog `Requested:/60, Received:/64`), which Asuswrt gives entirely to
+`br0`; reverted to `/64` and decided the guest bridge stays v4-only.
+
+**No router changes were made.** The 5 Gbps line topping out near 3.5 Gbps was investigated and the
+router exonerated: 10 GbE at every hop (BGW PON `O5` 10000 Mbps, `eth0` and `eth1` both 10GFD),
+flow cache in `L2 & L3` mode with `runner_disable=0`, and every accelerator-killer already off.
+The 3.5 figure came from the router-terminated built-in speed test, which gets no flow
+acceleration; the fastest client PHY on the LAN is 2.04 Gbps and the best measured throughput was
+**847 Mbps** (m5 over Wi-Fi 7). Radios were deliberately left as-is — 6 GHz already runs 320 MHz,
+and every valid 160 MHz chanspec on 5 GHz spans DFS. Full write-up, including three measurement
+traps and the lying `ATE Get_WanLanStatus` oracle, is in lessons.md. Also corrected in the table
+above: **kappa is a 720+ (geminilake) on DSM 7.4.1**, not a 718+/7.2.1.
 
 ## Important Patterns
 

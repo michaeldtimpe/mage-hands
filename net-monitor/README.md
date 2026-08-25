@@ -29,6 +29,13 @@ the script is bind-mounted so edits don't need a rebuild.
   number means "at least gigabit," not "exactly gigabit." **Timestamps stay UTC:** the once-daily
   scheduling decision (below) reads local time, but the `ts` field and the per-day filename it
   lands in are UTC as always — don't read a local-time run trigger as a change in log timezone.
+  **Unverified risk (noted 2026-08-24):** `speed.cloudflare.com/__down` returned **HTTP 403** to
+  macOS `curl` from another host that day, with and without a browser User-Agent. This was *not*
+  reproduced from kappa or from inside this container — alpine's curl presents a different TLS
+  fingerprint and UA, so it may well be unaffected. But if `cf_down_mbps`/`cf6_down_mbps` ever go
+  null or implausibly low, check for a 403 before assuming the link degraded. Linode Dallas
+  (`speedtest.dallas.linode.com/garbage.php?ckSize=2048`) answered normally and is a usable
+  fallback target.
 
 ## Deploy (on kappa, as root)
 ```sh
