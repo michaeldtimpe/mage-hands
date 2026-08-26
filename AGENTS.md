@@ -347,6 +347,15 @@ Three unrelated things surfaced in one session, all now closed.
    is excluded by design. When auditing these, read **`/etc/crontab` + `synoschedtask --get id=N`**
    — `esynoscheduler.db` holds only a single `bootup` task and is the wrong place to look.
 
+**Status (2026-08-26): backup topology is now bidirectional.** alpha↔kappa Snapshot Replication
+plans, all created/managed via `synowebapi` through the relays: **6 alpha→kappa** plans (archive,
+docker, logs, scripts, books — daily-ish Mon–Thu 03:00; PlexMediaServer — weekly Tue 03:30) plus
+one reverse **kappa→alpha** plan (`docker` → `docker-1`, daily 03:30). Reverse-direction plans
+turned out to need no new credentials — a destination box already holds an auto-minted reverse
+credential per plan. Also on kappa: Time Machine shares are now quota-enforced (2 TiB/user for
+`m1tm`, `mysterice`, `timemachine`; 8 TiB share-level backstop). Full recipe, gotchas, and the
+`node_cred` / quota internals are in [docs/snapshot-replication-api.md](docs/snapshot-replication-api.md).
+
 ## Important Patterns
 
 - **The relay binds `127.0.0.1:8787` only.** `tailscale serve` (HTTPS :443, tailnet-private)

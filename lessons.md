@@ -839,3 +839,30 @@ protocol" with "this capability is down." Probe the capability you actually care
 connect or an HTTP fetch over that family), or require two independent targets to agree before
 declaring an outage — and be suspicious when a fix's confirmation is a metric the fix never
 touched.
+
+## A "certificate" error when the relay is down is really "the relay is down"
+
+Connecting an MCP client to a relay's URL when the relay is stopped produced *"unable to verify
+the first certificate"* — which reads like a TLS/cert problem and invites chasing one. It isn't
+one. `tailscale serve` only binds `:443` while the relay is up; the moment it's down (idle
+watchdog, or just never started this session), the port falls through to DSM's **own** nginx,
+which answers on the same address with the box's self-signed Synology certificate instead of the
+tailnet-issued one the client expects. The client's chain-verification failure is accurately
+reporting a real cert mismatch — just not the one it looks like.
+
+**Lesson:** on these boxes, a cert-verification failure at the relay's URL means "bring the relay
+up with `relay.sh`," not "go fix TLS." Check whether the expected service is even listening
+before treating a handshake error as a certificate bug.
+
+## A long `run()` surviving client-side abort can end up running twice
+
+Deleting a multi-TB sparsebundle (`rm -rf`) through the relay took roughly 15 minutes per file —
+comfortably past `run()`'s ~300 s hard timeout (see the earlier entry on that cap). The client-side
+call aborts at the timeout, but the **remote process keeps running** on the host; nothing about the
+abort tears it down. A naive retry after the timeout starts a second `rm -rf` of the same path
+racing the first, in the same window documented elsewhere for long deploys.
+
+**Lesson:** for anything long enough to blow the timeout — an `rm -rf` of something huge is just as
+exposed as a multi-minute build — detach it from the call entirely: `nohup setsid ... &` on the
+target, capture a PID or a completion marker, and poll for it in separate `run()` calls, rather than
+letting the client's own timeout be the thing that decides whether the operation "failed."
