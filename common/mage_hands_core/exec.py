@@ -52,7 +52,13 @@ class Runner(Protocol):
 
 
 def _exec(argv: list[str], timeout: int, cap: int) -> dict:
-    proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    # errors="replace": host output is arbitrary bytes (latin-1 filenames, binary in a log,
+    # a stray 0xe2 from a truncated pipe). Strict decoding would raise UnicodeDecodeError and
+    # fail the whole tool call instead of returning the output — and the caller then can't even
+    # see what rc was. read_file already reads with errors="replace"; this matches it.
+    proc = subprocess.run(
+        argv, capture_output=True, text=True, errors="replace", timeout=timeout
+    )
     return {
         "rc": proc.returncode,
         "stdout": truncate(proc.stdout, cap),

@@ -5,6 +5,8 @@ Run from the repo root:  uv run --with pytest --with fastmcp pytest common/tests
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from mage_hands_core.config import Config, _split_list
@@ -144,6 +146,23 @@ def test_shellrunner_truncates_at_cap():
     res2 = r.run(["printf", "%s", "abcdefghij"], cap=3)
     assert res2["stdout"].startswith("abc")
     assert "truncated" in res2["stdout"]
+
+
+def test_shellrunner_survives_non_utf8_output():
+    """Host output is arbitrary bytes; a bad byte must not fail the whole call.
+
+    Regression: `text=True` with no `errors=` decodes strictly, so a single 0xe2 (a latin-1
+    filename, binary in a log) raised UnicodeDecodeError and the caller lost stdout AND rc.
+    """
+    r = ShellRunner()
+    res = r.run([sys.executable, "-c", r"import sys; sys.stdout.buffer.write(b'ab\xe2cd')"])
+    assert res["rc"] == 0
+    assert res["stdout"].startswith("ab")
+    assert res["stdout"].endswith("cd")
+    # stderr decodes the same way
+    res2 = r.run([sys.executable, "-c", r"import sys; sys.stderr.buffer.write(b'\xff')"])
+    assert res2["rc"] == 0
+    assert res2["stderr"]
 
 
 # ── Config: env-overridable policy ────────────────────────────────────────────────────────────
