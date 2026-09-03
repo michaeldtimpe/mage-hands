@@ -16,3 +16,5 @@ build/
 # luxe gitkit tooling (local, not part of the project)
 .luxe/
 .claude/snapctx/
+quality/.running/
+quality/.events.jsonl

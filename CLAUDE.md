@@ -67,3 +67,15 @@ image is `python:3.12-slim` + `util-linux` (for `nsenter`) + `fastmcp`; router-h
 own tailnet node. Targets: x86 Synology (DSM 7.2+) and an ASUS Asuswrt-Merlin router (reached over
 SSH; no Docker/nsenter on it). Core unit tests live in `common/tests/` — run from `common/` with
 `uv run --with pytest --with fastmcp pytest tests -q`.
+
+## Quality gates (cleat)
+
+`python3 quality/bin/gate.py` runs every quality gate; it also runs when you
+stop, and a failing gate is handed back to you as the next thing to fix. A
+failure names the file, the line and what fixes it — split the function, give
+the value its real type, make the test pass, handle the error.
+
+Do not edit `quality.json`, anything under `quality/`, or the hooks to make a
+gate pass, and do not run `--write-baseline`: the baselines record debt a
+person accepted, and only a person loosens them, in a reviewed commit. The
+gates only ever tighten; that is the point.

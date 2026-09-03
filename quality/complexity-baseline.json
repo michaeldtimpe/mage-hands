@@ -1,0 +1,153 @@
+{
+ "provenance": {
+  "tool": "lizard",
+  "version": "1.24.0",
+  "config": "df7426f691a5"
+ },
+ "entries": [
+  {
+   "file": "router-hands/server.py",
+   "text": "def _internet_exposure(host, out) -> dict:",
+   "cc": 44,
+   "lines": 137
+  },
+  {
+   "file": "synology-hands/firewall.py",
+   "text": "def register_firewall_tools(mcp, host) -> None:",
+   "cc": 1,
+   "lines": 264
+  },
+  {
+   "file": "router-hands/server.py",
+   "text": "def main() -> None:",
+   "cc": 5,
+   "lines": 218
+  },
+  {
+   "file": "router-hands/server.py",
+   "text": "def _pending_updates(host, out, check) -> dict:",
+   "cc": 27,
+   "lines": 53
+  },
+  {
+   "file": "synology-hands/firewall.py",
+   "text": "def firewall_set_rules(",
+   "cc": 23,
+   "lines": 98
+  },
+  {
+   "file": "synology-hands/server.py",
+   "text": "def main() -> None:",
+   "cc": 2,
+   "lines": 166
+  },
+  {
+   "file": "synology-hands/firewall.py",
+   "text": "def _status_core() -> dict:",
+   "cc": 19,
+   "lines": 44
+  },
+  {
+   "file": "synology-hands/firewall.py",
+   "text": "def firewall_diagnose(",
+   "cc": 18,
+   "lines": 48
+  },
+  {
+   "file": "synology-hands/firewall.py",
+   "text": "def validate_rule(rule: dict) -> list[str]:",
+   "cc": 17,
+   "lines": 36
+  },
+  {
+   "file": "synology-hands/server.py",
+   "text": "def _quickconnect(host) -> dict:",
+   "cc": 16,
+   "lines": 49
+  },
+  {
+   "file": "synology-hands/firewall.py",
+   "text": "def _ports_cover(rule: dict, service_name: str, port: int, proto: str = \"tcp\") -> bool:",
+   "cc": 15,
+   "lines": 26
+  },
+  {
+   "file": "router-hands/server.py",
+   "text": "def _thermal(host, ifaces) -> dict:",
+   "cc": 13,
+   "lines": 34
+  },
+  {
+   "file": "router-hands/server.py",
+   "text": "def _conntrack(host) -> object:",
+   "cc": 13,
+   "lines": 32
+  },
+  {
+   "file": "router-hands/tests/test_parsers.py",
+   "text": "def run(self, argv, timeout=60, cap=None):",
+   "cc": 13,
+   "lines": 17
+  },
+  {
+   "file": "common/mage_hands_core/exec.py",
+   "text": "def from_env(cls, cap: int = DEFAULT_OUTPUT_CAP) -> \"SSHRunner\":",
+   "cc": 12,
+   "lines": 47
+  },
+  {
+   "file": "common/mage_hands_core/exec.py",
+   "text": "def run(",
+   "cc": 12,
+   "lines": 72
+  },
+  {
+   "file": "common/mage_hands_core/exec.py",
+   "text": "def register_run_tool(",
+   "cc": 3,
+   "lines": 88
+  },
+  {
+   "file": "synology-hands/server.py",
+   "text": "def _performance(host, out) -> dict:",
+   "cc": 11,
+   "lines": 47
+  },
+  {
+   "file": "synology-hands/server.py",
+   "text": "def _pending_updates(host, out) -> dict:",
+   "cc": 11,
+   "lines": 55
+  },
+  {
+   "file": "router-hands/server.py",
+   "text": "def _performance(host, out, ifaces) -> dict:",
+   "cc": 10,
+   "lines": 47
+  },
+  {
+   "file": "router-hands/server.py",
+   "text": "def _parse_vts_rulelist(raw: str) -> list:",
+   "cc": 10,
+   "lines": 19
+  },
+  {
+   "file": "synology-hands/firewall.py",
+   "text": "def _source_matches(rule: dict, ip: str) -> bool:",
+   "cc": 10,
+   "lines": 25
+  },
+  {
+   "file": "synology-hands/firewall.py",
+   "text": "def lockout_guard(rules: list[dict], management_source: str = \"all\") -> dict:",
+   "cc": 10,
+   "lines": 37
+  },
+  {
+   "file": "synology-hands/firewall.py",
+   "text": "def firewall_rules(",
+   "cc": 10,
+   "lines": 21
+  }
+ ]
+}

@@ -1,0 +1,141 @@
+{
+ "provenance": {
+  "tool": "escapes",
+  "version": "1",
+  "config": "9d69617a3480"
+ },
+ "entries": [
+  {
+   "file": "router-hands/scripts/idle-watchdog.sh",
+   "text": "DOCKER=\"${DOCKER_BIN:-$(command -v docker 2>/dev/null || true)}\"",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "router-hands/scripts/relay-down.sh",
+   "text": "DOCKER=\"${DOCKER_BIN:-$(command -v docker 2>/dev/null || true)}\"",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "router-hands/scripts/relay-up.sh",
+   "text": "DOCKER=\"${DOCKER_BIN:-$(command -v docker 2>/dev/null || true)}\"",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "router-hands/scripts/relay-up.sh",
+   "text": "sudo \"$DOCKER\" logs --tail 30 router-hands 2>&1 || true",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "router-hands/scripts/smoke-test.py",
+   "text": "except Exception as exc:  # noqa: BLE001 - any auth failure is a pass here",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "router-hands/tests/test_parsers.py",
+   "text": "OUT = lambda r: (r.get(\"stdout\") or \"\").strip()  # noqa: E731 \u2014 mirrors server.py's main() `out`",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/idle-watchdog.sh",
+   "text": "DOCKER=\"${DOCKER_BIN:-$(command -v docker 2>/dev/null || true)}\"",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/plex-update.sh",
+   "text": "INSTALLED=$(synopkg version \"$PKG\" 2>/dev/null || true)",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/plex-update.sh",
+   "text": "synopkg start \"$PKG\" >/dev/null 2>&1 || true",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/relay-down.sh",
+   "text": "DOCKER=\"${DOCKER_BIN:-$(command -v docker 2>/dev/null || true)}\"",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/relay-down.sh",
+   "text": "TS=\"${TS_BIN:-$(command -v tailscale 2>/dev/null || true)}\"",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/relay-up.sh",
+   "text": "DOCKER=\"${DOCKER_BIN:-$(command -v docker 2>/dev/null || true)}\"",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/relay-up.sh",
+   "text": "TS=\"${TS_BIN:-$(command -v tailscale 2>/dev/null || true)}\"",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/smoke-test.py",
+   "text": "except Exception as exc:  # noqa: BLE001 - any auth failure is a pass here",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/ups-healthcheck.sh",
+   "text": "logfile() { printf '%s %s %s\\n' \"$(ts)\" \"$1\" \"$2\" >> \"$LOGFILE\" 2>/dev/null || true; }",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/ups-healthcheck.sh",
+   "text": "logger -p daemon.err -t \"$TAG\" \"$1\" 2>/dev/null || true   # err/warning land in /var/log/messages; notice/info don't",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/ups-healthcheck.sh",
+   "text": "synodsmnotify @administrators \"UPS monitoring DOWN ($(hostname))\" \"$1\" >/dev/null 2>&1 || true",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/ups-healthcheck.sh",
+   "text": "EXPECTED=$(synogetkeyvalue /usr/syno/etc/ups/synoups.conf ups_enabled 2>/dev/null || true)",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/ups-healthcheck.sh",
+   "text": "NAMES=$(upsc -l 2>/dev/null || true)",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/ups-healthcheck.sh",
+   "text": "STATUS=$(upsc \"$NAME\" ups.status 2>/dev/null || true)",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/scripts/ups-healthcheck.sh",
+   "text": "MODEL=$(upsc \"$NAME\" ups.model 2>/dev/null || true)",
+   "escape": "errors ignored",
+   "count": 1
+  },
+  {
+   "file": "synology-hands/tests/test_firewall.py",
+   "text": "from firewall import (  # noqa: E402",
+   "escape": "noqa",
+   "count": 1
+  }
+ ]
+}
